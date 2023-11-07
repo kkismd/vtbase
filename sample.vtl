@@ -1,0 +1,16 @@
+chrout  :=$ffd2
+        *=$080e
+
+        X=#0
+loop    A=hello+X
+        ;== #=stop
+        !=chrout
+        X=X+1
+        C=0
+        ;=< #=loop
+
+stop    #=!
+
+text    ?="HELLO, WORLD."
+bytes   $=$12,$34
+words   %=$1234,$cdef
