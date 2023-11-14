@@ -1,31 +1,22 @@
-use std::num::ParseIntError;
-
 use crate::error::ParseError;
 use regex::Regex;
 
 #[derive(Debug)]
 pub enum Operand {
-    Immediate(Address),
-    ZeroPage(u8),
-    ZeroPageX(u8),
-    ZeroPageY(u8),
-    Absolute(Address),
-    AbsoluteX(Address),
-    AbsoluteY(Address),
-    Relative(i8),
-    Indirect(u16),
-    IndirectX(u8),
-    IndirectY(u8),
-    Implied,
-    Accumulator,
-    SystemOperator(String),
-    StringLiteral(String),
+    WordData(u16),          // $12fd
+    ByteData(u8),           // $3f
+    Identifire(String),     // CONST_LABEL global_label .local_label
+    SystemOperator(String), // # > < - ! ...
+    StringLiteral(String),  // "hello world!"
+    Register(String),       // A X P ...
 }
 
-#[derive(Debug)]
-pub enum Address {
-    Digits(u16),
-    Label(String),
+enum Operator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Comma,
 }
 
 impl Operand {

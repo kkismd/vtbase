@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt;
 
-// ParseErrorを定義
 #[derive(Debug)]
 pub struct ParseError {
     pub details: String,
@@ -23,9 +22,9 @@ impl ParseError {
             details: format!("invaled token: {}", token),
         }
     }
-    pub fn operand(operand: &str) -> ParseError {
+    pub fn expression(expr: &str) -> ParseError {
         ParseError {
-            details: format!("invalid operand: {}", operand),
+            details: format!("invalid expression: {}", expr),
         }
     }
 }

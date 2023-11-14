@@ -1,14 +1,13 @@
-CHROUT  :=$ffd2
-        *=$080e
+CHROUT  :=$ffd2      ' EQL $FFD2
+        *=$080e      ' ORG $080E
 
-        X=#0
-loop    A=hello+X
-        ;== #=stop
-        !=CHROUT
-        X=+
-        C=0
-        ;=< #=loop
+        X=#0         ' LDX #0
+loop    A=hello+X    ' LDA hello,X
+        !=CHROUT     ' JSR CHROOT
+        X=X+1        ' INX
+        P=X-#$0d     ' CPX #$0D
+        ;=/ #=loop   ' BNE loop
 
-stop    #=!
+stop    #=!          ' RTS
 
-text    ?="HELLO, WORLD."
+hello   ?="HELLO, WORLD."
