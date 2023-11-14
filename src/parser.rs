@@ -1,10 +1,11 @@
+use crate::error::ParseError;
+use regex::Captures;
 use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-mod operand;
-use crate::error::ParseError;
-use operand::Operand;
+mod expression;
+use expression::Expr;
 
 // line of source code
 #[derive(Debug)]
@@ -38,14 +39,14 @@ impl Instruction {
 #[derive(Debug)]
 pub struct Statement {
     instruction: String,
-    operand: operand::Operand,
+    expression: expression::Expr,
 }
 
 impl Statement {
-    pub fn new(instruction: String, operand: operand::Operand) -> Self {
+    pub fn new(instruction: String, expression: Expr) -> Self {
         Self {
             instruction,
-            operand,
+            expression,
         }
     }
 }
@@ -66,12 +67,9 @@ pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, ParseError> {
 }
 // make abstract syntax tree
 fn parse_line(line: String, line_num: usize) -> Result<Instruction, ParseError> {
-    // source line format
-    let re = Regex::new(r"^(?<label>[.a-zA-Z][a-zA-Z0-9_]*)?(?<body>\s+.*)?")
-        .map_err(|_| ParseError::line(line_num, &line))?;
-    let cap = re
-        .captures(&line)
-        .ok_or(ParseError::line(line_num, &line))?;
+    let line = remove_after_quote(&line);
+    let cap = match_line(&line, line_num)?;
+
     let body = cap.name("body").map_or("", |m| m.as_str());
     let tokens = tokenize(body);
     Ok(Instruction::new(
@@ -83,11 +81,16 @@ fn parse_line(line: String, line_num: usize) -> Result<Instruction, ParseError> 
     ))
 }
 
+// source line format
+fn match_line(line: &str, line_num: usize) -> Result<Captures, ParseError> {
+    let re = Regex::new(r"^(?<label>[.a-zA-Z][a-zA-Z0-9_]*)?(?<body>\s+.*)?").unwrap();
+    re.captures(&line).ok_or(ParseError::line(line_num, &line))
+}
+
 fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, ParseError> {
     let mut statements = Vec::new();
     for token in tokens {
         let statement = parse_token(&token)?;
-        eprintln!("{:?}", statement);
         statements.push(statement);
     }
     Ok(statements)
@@ -102,14 +105,14 @@ fn parse_token(token: &str) -> Result<Statement, ParseError> {
         .name("operand")
         .map(|m| m.as_str())
         .ok_or(ParseError::token(token))?;
-    let operand = Operand::parse(op_str)?;
+    let expression = Expr::parse(op_str)?;
 
-    let statement = Statement::new(instruction.to_string(), operand);
+    let statement = Statement::new(instruction.to_string(), expression);
     Ok(statement)
 }
 
 fn tokenize(text: &str) -> Vec<String> {
-    let re = Regex::new(r#"\S=("[^"]*"|\S+)"#).unwrap();
+    let re = Regex::new(r#"\S=("[^"]*"|\S)+"#).unwrap();
     let mut tokens = Vec::new();
 
     for cap in re.captures_iter(text) {
@@ -117,4 +120,19 @@ fn tokenize(text: &str) -> Vec<String> {
     }
 
     tokens
+}
+
+fn remove_after_quote(s: &str) -> String {
+    let mut result = String::new();
+    let mut in_quotes = false;
+    for c in s.chars() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+        }
+        if c == '\'' && !in_quotes {
+            break;
+        }
+        result.push(c);
+    }
+    result
 }
