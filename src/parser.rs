@@ -1,4 +1,4 @@
-use crate::error::ParseError;
+use crate::error::AssemblyError;
 use regex::Captures;
 use regex::Regex;
 use std::fs::File;
@@ -38,21 +38,21 @@ impl Instruction {
 // instruction in a line of source code
 #[derive(Debug)]
 pub struct Statement {
-    instruction: String,
+    command: String,
     expression: expression::Expr,
 }
 
 impl Statement {
-    pub fn new(instruction: String, expression: Expr) -> Self {
+    pub fn new(command: String, expression: Expr) -> Self {
         Self {
-            instruction,
+            command,
             expression,
         }
     }
 }
 
 // make abstract syntax tree from input file
-pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, ParseError> {
+pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, AssemblyError> {
     let reader = BufReader::new(file);
     let mut instructions = Vec::new();
 
@@ -66,7 +66,7 @@ pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, ParseError> {
     Ok(instructions)
 }
 // make abstract syntax tree
-fn parse_line(line: String, line_num: usize) -> Result<Instruction, ParseError> {
+fn parse_line(line: String, line_num: usize) -> Result<Instruction, AssemblyError> {
     let line = remove_after_quote(&line);
     let cap = match_line(&line, line_num)?;
 
@@ -76,18 +76,19 @@ fn parse_line(line: String, line_num: usize) -> Result<Instruction, ParseError> 
         line_num,
         0,
         cap.name("label").map(|m| m.as_str()).map(String::from),
-        parse_statements(tokens).map_err(|e| ParseError::line(line_num, &e.details))?,
+        parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, &e.message()))?,
         Vec::new(),
     ))
 }
 
 // source line format
-fn match_line(line: &str, line_num: usize) -> Result<Captures, ParseError> {
+fn match_line(line: &str, line_num: usize) -> Result<Captures, AssemblyError> {
     let re = Regex::new(r"^(?<label>[.a-zA-Z][a-zA-Z0-9_]*)?(?<body>\s+.*)?").unwrap();
-    re.captures(&line).ok_or(ParseError::line(line_num, &line))
+    re.captures(&line)
+        .ok_or(AssemblyError::line(line_num, &line))
 }
 
-fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, ParseError> {
+fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, AssemblyError> {
     let mut statements = Vec::new();
     for token in tokens {
         let statement = parse_token(&token)?;
@@ -96,18 +97,18 @@ fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, ParseError> {
     Ok(statements)
 }
 
-fn parse_token(token: &str) -> Result<Statement, ParseError> {
-    let re = Regex::new(r"^(?P<instruction>\S)=(?P<operand>.+)$")
-        .map_err(|_| ParseError::token(token))?;
-    let cap = re.captures(&token).ok_or(ParseError::token(token))?;
-    let instruction = cap.name("instruction").map_or("", |m| m.as_str());
+fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
+    let re = Regex::new(r"^(?P<command>\S)=(?P<operand>.+)$")
+        .map_err(|_| AssemblyError::token(token))?;
+    let cap = re.captures(&token).ok_or(AssemblyError::token(token))?;
+    let command = cap.name("command").map_or("", |m| m.as_str());
     let op_str = cap
         .name("operand")
         .map(|m| m.as_str())
-        .ok_or(ParseError::token(token))?;
+        .ok_or(AssemblyError::token(token))?;
     let expression = Expr::parse(op_str)?;
 
-    let statement = Statement::new(instruction.to_string(), expression);
+    let statement = Statement::new(command.to_string(), expression);
     Ok(statement)
 }
 

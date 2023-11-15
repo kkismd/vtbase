@@ -15,7 +15,10 @@ use nom::{
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-use crate::error::ParseError;
+use crate::{
+    assembler::Assembler,
+    error::AssemblyError::{self, ParseError},
+};
 
 #[derive(Debug)]
 enum Operator {
@@ -40,14 +43,14 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn parse(input: &str) -> Result<Expr, ParseError> {
+    pub fn parse(input: &str) -> Result<Expr, AssemblyError> {
         let result = parse_expr(input);
         match result {
             Ok((_, expr)) => Ok(expr),
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
-                Err(ParseError::expression(&e.to_string()))
+                Err(AssemblyError::expression(&e.to_string()))
             }
-            Err(nom::Err::Incomplete(_)) => Err(ParseError::expression("imcomplete imput")),
+            Err(nom::Err::Incomplete(_)) => Err(AssemblyError::expression("imcomplete imput")),
         }
     }
 }
