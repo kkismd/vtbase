@@ -1,4 +1,4 @@
-use crate::parser::Instruction;
+use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
 // assembler.rs
@@ -22,24 +22,42 @@ impl Assembler {
             labels: HashMap::new(),
         }
     }
-    pub fn assemble(&mut self, instructions: Vec<Instruction>) -> Vec<Instruction> {
-        self.create_label_entries(&instructions);
-        let pass2_instructions = self.assemble_pass2(instructions);
-        pass2_instructions
+    pub fn assemble(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+        self.entry_labels(&instructions)?;
+        self.assemble_pass2(instructions)?;
+        Ok(())
     }
 
     // ラベルの名前をラベルテーブルに登録する
-    fn create_label_entries(&mut self, instructions: &Vec<Instruction>) {
+    fn entry_labels(&mut self, instructions: &Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
             if let Some(label) = &instruction.label {
-                self.entry_label(&label);
+                if !self.labels.contains_key(label) {
+                    self.entry_label(&label);
+                } else {
+                    return Err(AssemblyError::label_used(instruction.line_number, &label));
+                }
             }
         }
+        Ok(())
     }
 
-    fn assemble_pass2(&self, instructions: Vec<Instruction>) -> Vec<Instruction> {
-        // TODO: implement
-        instructions
+    /**
+     */
+    fn assemble_pass2(&self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+        /* 1. ORG命令の処理
+         * ORG命令がくるまでの間にEQL命令以外が来たらエラーとする
+         * ORG命令までのEQL命令のアドレスは0のままとする
+         */
+        for mut Instruction in instructions {
+            // TODO: ここで1行ごとの処理を書く
+            for statement in &Instruction.statements {
+                // TODO: ここで1命令ごとの処理を書く
+            }
+            Instruction.object_codes.push(0);
+        }
+
+        Ok(())
     }
 
     pub fn entry_label(&mut self, name: &str) {

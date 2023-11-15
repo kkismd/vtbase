@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(sorce_file: &File, output_file: File) -> Result<(), Box<dyn std::error::Error>> {
-    let instructions = parse_from_file(sorce_file)?;
+    let mut instructions = parse_from_file(sorce_file)?;
     // print insts for debug
     for inst in &instructions {
         eprintln!(
@@ -49,10 +49,10 @@ fn run(sorce_file: &File, output_file: File) -> Result<(), Box<dyn std::error::E
         );
     }
     let mut assembler = Assembler::new();
-    let pass2_instructions = assembler.assemble(instructions);
+    assembler.assemble(&mut instructions)?;
 
     // TODO: オブジェクトサイズを受け取ってプリントする
-    output_bin(output_file, pass2_instructions)
+    output_bin(output_file, instructions)
 }
 
 fn output_bin(
