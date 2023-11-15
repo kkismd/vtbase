@@ -17,11 +17,11 @@ use std::str::FromStr;
 
 use crate::{
     assembler::Assembler,
-    error::AssemblyError::{self, ParseError},
+    error::AssemblyError::{self, SyntaxError},
 };
 
 #[derive(Debug)]
-enum Operator {
+pub enum Operator {
     Add,
     Sub,
     Mul,
