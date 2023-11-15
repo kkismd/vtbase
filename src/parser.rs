@@ -4,8 +4,11 @@ use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-mod expression;
+pub mod expression;
 use expression::Expr;
+
+pub mod statement;
+use statement::Statement;
 
 // line of source code
 #[derive(Debug)]
@@ -31,22 +34,6 @@ impl Instruction {
             label,
             statements,
             object_codes,
-        }
-    }
-}
-
-// instruction in a line of source code
-#[derive(Debug)]
-pub struct Statement {
-    command: String,
-    expression: expression::Expr,
-}
-
-impl Statement {
-    pub fn new(command: String, expression: Expr) -> Self {
-        Self {
-            command,
-            expression,
         }
     }
 }

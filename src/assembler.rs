@@ -1,3 +1,4 @@
+use crate::parser::statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
@@ -5,13 +6,13 @@ use std::collections::HashMap;
 pub struct Assembler {
     pub origin: u16,
     pub pc: u16,
-    pub labels: HashMap<String, Label>,
+    pub labels: HashMap<String, LabelEntry>,
 }
 
-pub struct Label {
+pub struct LabelEntry {
     pub name: String,
+    pub line: usize,
     pub address: Option<u16>,
-    pub local_labels: HashMap<String, Label>,
 }
 
 impl Assembler {
@@ -32,10 +33,16 @@ impl Assembler {
     fn entry_labels(&mut self, instructions: &Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
             if let Some(label) = &instruction.label {
-                if !self.labels.contains_key(label) {
-                    self.entry_label(&label);
+                if label.starts_with(".") {
+                    // local label
+                    // TODO: グローバルラベル.ローカルラベル という名前で登録・参照する
                 } else {
-                    return Err(AssemblyError::label_used(instruction.line_number, &label));
+                    // global label
+                    if !self.labels.contains_key(label) {
+                        self.add_global_label(&label, instruction.line_number);
+                    } else {
+                        return Err(AssemblyError::label_used(instruction.line_number, &label));
+                    }
                 }
             }
         }
@@ -44,29 +51,42 @@ impl Assembler {
 
     /**
      */
-    fn assemble_pass2(&self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
-        /* 1. ORG命令の処理
-         * ORG命令がくるまでの間にEQL命令以外が来たらエラーとする
-         * ORG命令までのEQL命令のアドレスは0のままとする
-         */
-        for mut Instruction in instructions {
-            // TODO: ここで1行ごとの処理を書く
-            for statement in &Instruction.statements {
-                // TODO: ここで1命令ごとの処理を書く
+    fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+        for mut instruction in instructions {
+            if let Some(name) = &instruction.label {
+                if let Some(label_entry) = self.labels.get_mut(name) {
+                    label_entry.address = Some(self.pc);
+                }
             }
-            Instruction.object_codes.push(0);
+
+            for mut statement in &instruction.statements {
+                let objects = self.process_statement(statement)?;
+                instruction.object_codes.extend(objects);
+            }
+            match <usize as TryInto<u16>>::try_into(instruction.object_codes.len()) {
+                Ok(v) => self.pc += v,
+                Err(_) => return Err(AssemblyError::program("object code memory size overflow.")),
+            }
         }
 
         Ok(())
     }
 
-    pub fn entry_label(&mut self, name: &str) {
+    fn process_statement(
+        &self,
+        statement: &statement::Statement,
+    ) -> Result<Vec<u8>, AssemblyError> {
+        // TODO: ここで1命令ごとの処理を書く
+        statement.compile()
+    }
+
+    fn add_global_label(&mut self, name: &str, line: usize) {
         self.labels.insert(
             name.to_string(),
-            Label {
+            LabelEntry {
                 name: name.to_string(),
+                line: line,
                 address: None,
-                local_labels: HashMap::new(),
             },
         );
     }
