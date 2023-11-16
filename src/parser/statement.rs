@@ -17,6 +17,25 @@ impl Statement {
         }
     }
 
+    pub fn is_pseude(&self) -> bool {
+        let pseude_commands = vec!["*", ":", "?"];
+        pseude_commands.iter().any(|&pc| pc == self.command)
+    }
+
+    pub fn validate(&self) -> Result<(), AssemblyError> {
+        if self.command == "*" || self.command == ":" {
+            match self.expression {
+                Expr::WordNum(_) => Ok(()),
+                _ => Err(AssemblyError::syntax("operand must be 16bit address")),
+            }
+        } else {
+            Ok(())
+            // TODO: need more command check
+            // let details = format!("unknown command: <{}>", self.command);
+            // Err(AssemblyError::syntax(&details))
+        }
+    }
+
     pub fn compile(&self) -> Result<Vec<u8>, AssemblyError> {
         match self.command.as_str() {
             "*" => self.compile_origin(),

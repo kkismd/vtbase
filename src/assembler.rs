@@ -1,4 +1,5 @@
-use crate::parser::statement;
+use crate::parser::expression::Expr;
+use crate::parser::statement::{self, Statement};
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
@@ -39,7 +40,7 @@ impl Assembler {
                 } else {
                     // global label
                     if !self.labels.contains_key(label) {
-                        self.add_global_label(&label, instruction.line_number);
+                        self.add_label(&label, instruction.line_number);
                     } else {
                         return Err(AssemblyError::label_used(instruction.line_number, &label));
                     }
@@ -49,8 +50,6 @@ impl Assembler {
         Ok(())
     }
 
-    /**
-     */
     fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for mut instruction in instructions {
             if let Some(name) = &instruction.label {
@@ -60,8 +59,13 @@ impl Assembler {
             }
 
             for mut statement in &instruction.statements {
-                let objects = self.process_statement(statement)?;
-                instruction.object_codes.extend(objects);
+                statement.validate()?;
+                if statement.is_pseude() {
+                    self.do_pseudo_command(instruction, statement)?;
+                } else {
+                    let objects = statement.compile()?;
+                    instruction.object_codes.extend(objects);
+                }
             }
             match <usize as TryInto<u16>>::try_into(instruction.object_codes.len()) {
                 Ok(v) => self.pc += v,
@@ -72,15 +76,39 @@ impl Assembler {
         Ok(())
     }
 
-    fn process_statement(
-        &self,
-        statement: &statement::Statement,
-    ) -> Result<Vec<u8>, AssemblyError> {
-        // TODO: ここで1命令ごとの処理を書く
-        statement.compile()
+    fn do_pseudo_command(
+        &mut self,
+        instruction: &Instruction,
+        statement: &Statement,
+    ) -> Result<(), AssemblyError> {
+        if statement.command == "*" {
+            // set stgart address
+            if let Expr::WordNum(address) = statement.expression {
+                self.origin = address;
+            }
+            Ok(())
+        } else if statement.command == ":" {
+            // label def
+            let label_name = instruction
+                .label
+                .clone()
+                .ok_or(AssemblyError::program("label def need label"))?;
+            // fetch label entry
+            let label_entry = self
+                .labels
+                .get_mut(&label_name)
+                .ok_or(AssemblyError::program("label not found"))?;
+            // set address to entry
+            if let Expr::WordNum(address) = statement.expression {
+                label_entry.address = Some(address);
+            }
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
-    fn add_global_label(&mut self, name: &str, line: usize) {
+    fn add_label(&mut self, name: &str, line: usize) {
         self.labels.insert(
             name.to_string(),
             LabelEntry {
