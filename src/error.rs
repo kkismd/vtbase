@@ -17,8 +17,8 @@ impl AssemblyError {
         }
     }
 
-    pub fn new_parse_error(details: &str) -> Self {
-        Self::SyntaxError(details.to_string())
+    pub fn syntax(details: &str) -> Self {
+        Self::SyntaxError(format!("syntax error: {details}"))
     }
 
     pub fn line(line_num: usize, line: &str) -> Self {
