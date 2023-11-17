@@ -59,8 +59,8 @@ impl Assembler {
             }
 
             for mut statement in &instruction.statements {
-                statement.validate()?;
-                if statement.is_pseude() {
+                if statement.is_pseudo() {
+                    statement.validate_pseudo_command()?;
                     self.do_pseudo_command(instruction, statement)?;
                 } else {
                     let objects = statement.compile()?;

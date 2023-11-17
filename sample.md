@@ -15,67 +15,89 @@
     14                                ;  0123456789012
 ```
 
-ADC  A=A+n
-AND  A=A&n
-ASL  <=A
-BCC  ;=< #=$1234      ; IF < GOTO $1234
-BCS  ;=> #=$1234      ; IF >= GOTO $1234
-BEQ  ;== #=$1234      ; IF = GOTO $1234
-BMI  ;=- #=$1234      ; IF - GOTO $1234
-BNE  ;=/ #=$1234      ; IF <> GOTO $1234
-BPL  ;=+ #=$1234      ; IF + GOTO $1234
-BVC  ;=_ #=$1234      ; IF V=0 GOTO $1234
-BVS  ;=^ #=$1234      ; IF V=1 GOTO $1234
-BIT  T=A&$1234
-BRK  !
-CLC  C=0
-CLD  D=0
-CLI  I=0
-CLV  V=0
-CMP  T=A-n
-CPX  T=X-n
-CPY  T=Y-n
-DEC  A=-
-DEX  X=-
-DEY  Y=-
-EOR  A=A^n
-INC  A=+
-INX  X=+
-INY  Y=+
-JMP  #=$1234
-JSR  !=$1234
-LDA  A=1
-LDX  X=1
-LDY  Y=1
-LSR  >=A
-NOP  -
-ORA  A=A|1
-PHA  [=A
-PHP  [=P
-PLA  A=]
-PLP  P=]
-ROL  A<<
-ROR  A>>
-RTI  ~
-RTS  ^
-SBC  A=A-n
-SEC  C=1
-SED  D=1
-SEI  I=1
-STA  ($1234)=A
-STX  ($1234)=X
-STY  ($1234)=Y
-TAX  X=A
-TAY  Y=A
-TSX  X=S
-TXA  A=X
-TXS  S=X
-TYA  A=Y
+# 6502 Mnemonic - VTBase Statement
 
-# マクロ
+| Mnemonic | VTL like statement | Note |
+| - | - | - |
+| ADC | A=A+n | CLC ADC のマクロ命令 |
+| ADC | A=A+n+C | キャリークリアをしない場合 |
+| ADC | A=A+C+n | キャリークリアをしない場合 |
+| ADC | A=AC+n | キャリークリアをしない場合 |
+| AND | A=A&n |
+| ASL | <=A |
+| ASL | A=A[1 | 文法を単純にするため演算子は1文字にしたい |
+| BCC | ;=< #=$1234 | IF < GOTO $1234 |
+| BCS | ;=> #=$1234 | IF >= GOTO $1234 |
+| BEQ | ;== #=$1234 | IF = GOTO $1234 |
+| BMI | ;=- #=$1234 | IF - GOTO $1234 |
+| BNE | ;=/ #=$1234 | IF <> GOTO $1234 |
+| BPL | ;=+ #=$1234 | IF + GOTO $1234 |
+| BVC | ;=_ #=$1234 | IF V=0 GOTO $1234 |
+| BVS | ;=^ #=$1234 | IF V=1 GOTO $1234 |
+| BIT | T=A&$1234 |
+| BRK | ! |
+| CLC | C=0 |
+| CLD | D=0 |
+| CLI | I=0 |
+| CLV | V=0 |
+| CMP | T=A-n |
+| CPX | T=X-n |
+| CPY | T=Y-n |
+| DEC | A=- |
+| DEX | X=- |
+| DEY | Y=- |
+| EOR | A=A^n |
+| INC | A=+ |
+| INX | X=+ |
+| INY | Y=+ |
+| JMP | #=$1234 |
+| JSR | !=$1234 |
+| LDA | A=1 |
+| LDX | X=1 |
+| LDY | Y=1 |
+| LSR | >=A |
+| LSR | A=A]1 |
+| NOP | . |
+| ORA | A=A|1 |
+| PHA | [=A |
+| PHP | [=P |
+| PLA | A=] |
+| PLP | P=] |
+| ROL | (=A |
+| ROR | )=A |
+| ROL | A=A{1 |
+| ROR | A=A}1 |
+| RTI | ~ |
+| RTS | #=! |
+| RTS | ! |
+| RTS | ^ |
+| RTS | ] |
+| SBC | A=A-n | SEC SBC のマクロ命令 |
+| SBC | A=A+C-n | キャリーセットをしない場合 |
+| SBC | A=AC-n | キャリーセットをしない場合 |
+| SBC | A=A+C-1-n | キャリーセットをしない場合 |
+| SBC | A=A-(1-C)-n | キャリーセットをしない場合 |
+| SEC | C=1 |
+| SED | D=1 |
+| SEI | I=1 |
+| STA | ($1234)=A | コマンドが1文字にならない |
+| STA | M($1234)=A | コマンドが1文字にならない |
+| STA | M=A@($1234) | 意味論が微妙 |
+| STX | ($1234)=X |
+| STY | ($1234)=Y |
+| TAX | X=A |
+| TAY | Y=A |
+| TSX | X=S |
+| TXA | A=X |
+| TXS | S=X |
+| TYA | A=Y |
+
+# Macro statement
+
+IFマクロ
 
 ```vtl
-  A<$12 ...      ; IF A<$12 THEN ...
+  ;=A<$12 ...
 ```
 
 展開イメージ
@@ -87,58 +109,60 @@ TYA  A=Y
 .next_label
 ```
 
+DO-WHILEマクロ
 
-# アドレッシングモード
+```vtl
+  @
+    ...
+  @=X>0
+```
+
+展開イメージ
+
+```vtl
+.loop_label
+  ...
+  T=X-0
+  ;=> #=.loop_label
+```
+
+
+# Addressing Mode
 
 | mode                | asm format | vtl format |
 | ------------------- | ---------- | ---------- |
 | Implied             |            |            |
-| Immediate           | #aa        | aa         |
-| Absolute            | aaaa       | (aaaa)     |
-| Relative            | aaaa       | (aaaa)     |
-| Zero Page           | aa         | (aa)       |
-| Absolute Indexed,X  | aaaa,X     | (aaaa+X)   |
-| Absolute Indexed,Y  | aaaa,Y     | (aaaa+Y)   |
-| Zero Page Indexed,X | aa,X       | (aa,X)     |
-| Zero Page Indexed,Y | aa,Y       | (aa,Y)     |
-| Indirect Absolute   | (aaaa)     | [awaa]     |
-| Indexed Indirect    | (aa,X)     | [aa,X]     |
-| Indirect Indexed    | (aa),Y     | [aa],Y     |
+| Immediate           | #aa        | #aa        |
+| Absolute            | aaaa       | aaaa       |
+| Relative            | aaaa       | aaaa       |
+| Zero Page           | aa         | aa         |
+| Absolute Indexed,X  | aaaa,X     | aaaa+X     |
+| Absolute Indexed,Y  | aaaa,Y     | aaaa+Y     |
+| Zero Page Indexed,X | aa,X       | aa+X       |
+| Zero Page Indexed,Y | aa,Y       | aa+Y       |
+| Indirect Absolute   | (aaaa)     | (aaaa)     |
+| Indexed Indirect    | (aa,X)     | (aa+X)     |
+| Indirect Indexed    | (aa),Y     | (aa)+Y     |
 | Accumulator         | A          | A          |
 
 Note:
-aa = 2 hex digits as $FF
-aaaa = 4 hex digits as $FFFF
+* aa = 2 hex digits as $FF
+* aaaa = 4 hex digits as $FFFF
 
-Can also be assembler labels
+# Pseudo Command
 
-## オペランド記法
+| asm                   | vtl like              |
+| --------------------- | --------------------- |
+| LABEL EQU $aaaa       | label :=$aaa          |
+| *=$aaaa               | *=$aaaa               |
+| .byte $aa,$aa         | $=$aa,$aa             |
+| .word $aaaa,$aaaa     | %=$aaaa,$aaaa         |
+| .text "hello world",0 | ?="hello world",0     |
+| (Mixed Format)        | %=("hello",$aa,$aaaa) |
 
-```vtl
-A=#label  ; ラベル
-A=$FF     ; 即値
-A=($FF)   ; ゼロページ
-A=($1234) ; アブソリュート
-```
-
-```asm
-A=#label
-A=#$FF
-A=$FF
-A=$1234
-```
 
 # 課題メモ
 
-* ラベル定義をどうするか
-  * ラベルは小文字,アンダースコア,数字
-  * EQU疑似命令に相当
-  * "ラベル :=アドレス"
-  * "chrout :=$ffd2"
-* データ定義文をどうするか
-  * 命令の記号は ?, $, %
-  * ?="Hello, World"  ASCIIデータ
-  * %={"string" $0A $0D $3F1D $FFFF} 混合データ文 文字列、バイト、ワード
 * IF 文のブロックをどうするか
   * 「前の行からの続き」という形でブロックの代わりとする
   * 継続行の命令は "==="
@@ -148,46 +172,38 @@ A=$1234
 
 記号使用状況
 
-| 記号 | VTBase       | VTL,GAME80                 |
-| ---- | ------------ | -------------------------- |
-| !    | JSR          |                            |
-| @    |              | LOOP (GAME80)              |
-| #    | JMP or BRA   |                            |
-| $    | バイトデータ |                            |
-| &    |              | High memory (VTL)          |
-| *    | ORG          | Low memory (VTL)           |
-| (    |              |                            |
-| )    |              | コメント (VTL)             |
-| [    | PUSH         |                            |
-| ]    | POP          | RETURN (GAME80)            |
-| <    |              | File出力 or ポインタ (VTL) |
-| >    |              | File入力 (VTL)             |
-| /    |              | 改行 (GAME80)              |
-| ?    | 文字列データ |                            |
-| :    | EQL          | 配列 (VTL)                 |
-| ;    | IF           |                            |
-| %    | ワードデータ | 剰余 (VTL, GAME80)         |
-| ^    | RTS          |                            |
-| `    |              |                            |
-| _    |              |                            |
-| +    |              |                            |
-| =    |              |                            |
-| \    |              |                            |
-| ,    |              |                            |
-| .    |              | タブ出力                   |
-| '    | コメント     | 乱数                       |
-| "    |              | PRINT GAME80               |
-| {    | REPEAT       |                            |
-| }    | UNTIL        |                            |
-| ~    | RTI          |                            |
+| 記号 | command      | expression   | VTL,GAME80                 |
+| ---- | ------------ | ------------ | -------------------------- |
+| !    | JSR          |              |                            |
+| @    | LOOP         | アドレス指定 | LOOP (GAME80)              |
+| #    | JMP or BRA   |              |                            |
+| $    | バイトデータ |              |                            |
+| &    | データ領域   | AND          | High memory (VTL)          |
+| *    | ORG          | 乗算         | Low memory (VTL)           |
+| (    | ローテート左 | 括弧         |                            |
+| )    | ローテート右 |              | コメント (VTL)             |
+| [    | PUSH         | 論理シフト左 |                            |
+| ]    | POP          | 論理シフト右 | RETURN (GAME80)            |
+| <    | 論理シフト左 | 小なり       | File出力 or ポインタ (VTL) |
+| >    | 論理シフト右 | 大なり       | File入力 (VTL)             |
+| /    |              | 除算         | 改行 (GAME80)              |
+| ?    | 文字列データ |              |                            |
+| :    | EQL          | ELSE         | 配列 (VTL)                 |
+| ;    | IF           |              |                            |
+| %    | ワードデータ | 剰余         | (VTL, GAME80)              |
+| ^    | RTS          | XOR          |                            |
+| ｜   |              | OR           |                            |
+| ｀   |              |              |                            |
+| _    |              | 減算         |                            |
+| +    |              | 加算         |                            |
+| =    |              | 等号         |                            |
+| \    |              | 不等号       |                            |
+| ,    |              | COMMA        |                            |
+| .    | NOP          |              | タブ出力                   |
+| '    | コメント     |              | 乱数                       |
+| "    |              | 文字列       | PRINT GAME80               |
+| {    |              | ローテート左 |                            |
+| }    |              | ローテート右 |                            |
+| ~    | RTI          | 不等号       |                            |
 
-# 演算子
-
-| 記号 | 意味                                                                           |
-| ---- | ------------------------------------------------------------------------------ |
-| <    | 小なり                                                                         |
-| >    | 大なりイコール                                                                 |
-| =    | イコール                                                                       |
-| #    | ノットイコール  -> 即値リテラルの # とつながると読みづらいので別の記号と変える |
-| ~    | ノットイコール(新)                                                             |
 

@@ -1,6 +1,8 @@
 use std::vec;
 
-#[derive(Debug, Clone)]
+use crate::error::AssemblyError;
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Mnemonic {
     ADC,
     AND,
@@ -60,7 +62,7 @@ pub enum Mnemonic {
     TYA,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -111,6 +113,19 @@ impl Opcode {
             addressing_mode,
             opcode,
         }
+    }
+
+    pub fn find(
+        opcode_table: Vec<Opcode>,
+        mnemonic: Mnemonic,
+        addressing_mode: AddressingMode,
+    ) -> Result<Self, AssemblyError> {
+        for opcode in opcode_table {
+            if opcode.mnemonic == mnemonic && opcode.addressing_mode == addressing_mode {
+                return Ok(opcode);
+            }
+        }
+        Err(AssemblyError::opcode_not_found(mnemonic, addressing_mode))
     }
 }
 
