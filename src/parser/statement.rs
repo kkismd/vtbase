@@ -1,5 +1,6 @@
 use crate::error::AssemblyError;
 
+use crate::opcode::{AddressingMode, Mnemonic, Opcode};
 use crate::parser::expression::Expr;
 
 // instruction in a line of source code
@@ -76,6 +77,12 @@ impl Statement {
     }
 
     fn compile_X(&self) -> Result<Vec<u8>, AssemblyError> {
+        if let Expr::Immediate(boxed_expression) = &self.expression {
+            if let Expr::ByteNum(num8) = **boxed_expression {
+                let mnemonic = Mnemonic::LDX;
+                let mode = AddressingMode::Immediate;
+            }
+        }
         todo!()
     }
 

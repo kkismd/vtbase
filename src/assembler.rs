@@ -1,5 +1,5 @@
 use crate::parser::expression::Expr;
-use crate::parser::statement::{self, Statement};
+use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
@@ -51,14 +51,14 @@ impl Assembler {
     }
 
     fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
-        for mut instruction in instructions {
+        for instruction in instructions {
             if let Some(name) = &instruction.label {
                 if let Some(label_entry) = self.labels.get_mut(name) {
                     label_entry.address = Some(self.pc);
                 }
             }
 
-            for mut statement in &instruction.statements {
+            for statement in &instruction.statements {
                 statement.validate()?;
                 if statement.is_pseude() {
                     self.do_pseudo_command(instruction, statement)?;

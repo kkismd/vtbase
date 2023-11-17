@@ -81,19 +81,19 @@ pub type Mode = AddressingMode;
 impl AddressingMode {
     pub fn length(&self) -> u8 {
         match self {
-            AddressingMode::Immediate => 2,
-            AddressingMode::ZeroPage => 2,
-            AddressingMode::ZeroPageX => 2,
-            AddressingMode::ZeroPageY => 2,
-            AddressingMode::Absolute => 3,
-            AddressingMode::AbsoluteX => 3,
-            AddressingMode::AbsoluteY => 3,
-            AddressingMode::Relative => 2,
-            AddressingMode::Indirect => 3,
-            AddressingMode::IndirectX => 2,
-            AddressingMode::IndirectY => 2,
-            AddressingMode::Implied => 1,
-            AddressingMode::Accumulator => 1,
+            Self::Immediate => 2,
+            Self::ZeroPage => 2,
+            Self::ZeroPageX => 2,
+            Self::ZeroPageY => 2,
+            Self::Absolute => 3,
+            Self::AbsoluteX => 3,
+            Self::AbsoluteY => 3,
+            Self::Relative => 2,
+            Self::Indirect => 3,
+            Self::IndirectX => 2,
+            Self::IndirectY => 2,
+            Self::Implied => 1,
+            Self::Accumulator => 1,
         }
     }
 }
