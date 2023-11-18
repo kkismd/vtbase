@@ -1,3 +1,4 @@
+use byteorder::{LittleEndian, WriteBytesExt};
 use nom::{
     branch::alt,
     bytes::complete::escaped,
@@ -20,7 +21,7 @@ use crate::{
     error::AssemblyError::{self, SyntaxError},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -52,6 +53,35 @@ impl Expr {
             }
             Err(nom::Err::Incomplete(_)) => Err(AssemblyError::expression("imcomplete imput")),
         }
+    }
+
+    pub fn as_bytes(&self, len: usize) -> Vec<u8> {
+        if len == 0 {
+            vec![]
+        } else if len == 1 {
+            match self {
+                Self::ByteNum(num8) => vec![*num8],
+                Self::DecimalNum(num) => vec![*num as u8],
+                _ => vec![],
+            }
+        } else if len == 2 {
+            match self {
+                Self::WordNum(num) => Self::word_to_bytes(num),
+                Self::DecimalNum(num) => Self::word_to_bytes(num),
+                Self::Identifier(name) => todo!(), // TODO: ラベルの解消が必要
+                _ => vec![],
+            }
+        } else {
+            vec![]
+        }
+    }
+
+    fn word_to_bytes(num: &u16) -> Vec<u8> {
+        let mut wtr = vec![];
+        wtr.write_u16::<LittleEndian>(*num)
+            .map_err(|_| AssemblyError::syntax("bad operand"))
+            .unwrap();
+        wtr
     }
 }
 

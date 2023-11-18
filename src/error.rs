@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+use crate::opcode::{AddressingMode, Mnemonic};
+
 #[derive(Debug)]
 pub enum AssemblyError {
     SyntaxError(String),
@@ -43,6 +45,14 @@ impl AssemblyError {
 
     pub fn program(details: &str) -> Self {
         Self::ProgremError(format!("program error: {details}"))
+    }
+
+    pub fn opcode_not_found(mnemonic: &Mnemonic, addressing_mode: &AddressingMode) -> Self {
+        let details = format!(
+            "opcode not found: {:?} with {:?}",
+            mnemonic, addressing_mode
+        );
+        Self::SyntaxError(details)
     }
 }
 

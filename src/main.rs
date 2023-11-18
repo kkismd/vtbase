@@ -18,8 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         process::exit(1);
     }
 
-    let opcode_table = opcode::initialize_opcode_table();
-
     // open source file
     let file_open_result = File::open(&args[1]);
 

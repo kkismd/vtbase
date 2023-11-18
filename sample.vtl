@@ -5,7 +5,7 @@ CHROUT  :=$ffd2      ' EQL $FFD2
 loop    A=hello+X    ' LDA hello,X
         !=CHROUT     ' JSR CHROOT
         X=X+1        ' INX
-        P=X-#$0d     ' CPX #$0D
+        T=X-#$0d     ' CPX #$0D
         ;=/ #=loop   ' BNE loop
 
 stop    #=!          ' RTS
