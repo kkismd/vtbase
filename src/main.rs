@@ -10,6 +10,16 @@ use assembler::Assembler;
 use parser::parse_from_file;
 use parser::Instruction;
 
+#[cfg(debug_assertions)]
+pub fn dbg(args: std::fmt::Arguments) {
+    eprintln!("{}", args);
+}
+
+#[cfg(not(debug_assertions))]
+pub fn dbg(msg: &str) {
+    ()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
