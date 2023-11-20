@@ -39,24 +39,28 @@ impl Assembler {
 
     fn assemble_pass1(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
+            eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction);
+            instruction.address = self.pc;
             self.entry_label(instruction)?;
             for statement in &instruction.statements {
                 if statement.is_pseudo() {
                     statement.validate_pseudo_command()?;
                     self.do_pseudo_command(instruction, statement)?;
                     continue;
-                };
-
-                let (mnemonic, mode) = statement.decode()?;
-                let len = mode.length();
+                }
+                let assymbly_instruction = statement.decode()?;
+                let len = assymbly_instruction.addressing_mode.length();
                 self.pc += len as u16;
             }
-            eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction)
         }
         Ok(())
     }
 
-    // ラベルの名前をラベルテーブルに登録する
+    /**
+     * entry label to label table
+     *  - if start with ".", treat as local label
+     *  - if label is global, set current_label
+     */
     fn entry_label(&mut self, instruction: &mut Instruction) -> Result<(), AssemblyError> {
         if let Some(label) = &instruction.label {
             if label.starts_with(".") {
@@ -65,6 +69,7 @@ impl Assembler {
                     return Err(AssemblyError::program("global label not found"));
                 }
                 let label = format!("{}{}", self.current_label, label);
+                self.add_entry(&label, instruction)?;
             } else {
                 // global label
                 self.add_entry(label, instruction)?;
@@ -80,7 +85,7 @@ impl Assembler {
 
     fn add_entry(&mut self, label: &str, instruction: &Instruction) -> Result<(), AssemblyError> {
         if !self.labels.contains_key(label) {
-            let entry = self.add_label(&label, instruction.line_number, self.pc);
+            self.add_label(&label, instruction.line_number, self.pc);
             Ok(())
         } else {
             return Err(AssemblyError::label_used(instruction.line_number, &label));
@@ -89,15 +94,27 @@ impl Assembler {
 
     fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for mut instruction in instructions {
+            let mut pc = instruction.address;
             for mut statement in &instruction.statements {
                 if !statement.is_pseudo() {
-                    let objects = statement.compile(&self.opcode_table)?;
+                    let objects = statement.compile(&self.opcode_table, &self.labels, pc)?;
+                    let dump = Self::dump_objects(&objects);
+                    eprintln!("{}\t{:?}", dump, statement);
+                    pc += objects.len() as u16;
                     instruction.object_codes.extend(objects);
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn dump_objects(objects: &Vec<u8>) -> String {
+        objects
+            .iter()
+            .map(|n| format!("{:02X}", n))
+            .collect::<Vec<String>>()
+            .join(",")
     }
 
     fn do_pseudo_command(

@@ -99,10 +99,49 @@ impl AddressingMode {
             Self::Accumulator => 1,
         }
     }
+}
 
-    pub fn bytes(&self, expression: &Expr) -> Vec<u8> {
-        let len = self.length();
-        expression.as_bytes(len)
+// アセンブリ命令を表現する構造体
+pub struct AssemblyInstruction {
+    pub mnemonic: Mnemonic,
+    pub addressing_mode: AddressingMode,
+    pub value: OperandValue,
+}
+
+impl AssemblyInstruction {
+    pub fn new(mnemonic: Mnemonic, addressing_mode: AddressingMode, value: OperandValue) -> Self {
+        Self {
+            mnemonic,
+            addressing_mode,
+            value,
+        }
+    }
+}
+
+// オペランドの値を表現する列挙型
+pub enum OperandValue {
+    None,                    // 値なし
+    Byte(u8),                // 8ビット値
+    Word(u16),               // 16ビット値
+    UnresolvedLabel(String), // 未解決のラベル参照 ラベル名を保持する
+    UnresolvedRerative(u16), // 未解決の相対参照 絶対アドレスを保持する
+}
+
+impl OperandValue {
+    pub fn none() -> Self {
+        Self::None
+    }
+
+    pub fn byte(value: u8) -> Self {
+        Self::Byte(value)
+    }
+
+    pub fn word(value: u16) -> Self {
+        Self::Word(value)
+    }
+
+    pub fn unresolved_label(name: &str) -> Self {
+        Self::UnresolvedLabel(name.to_string())
     }
 }
 
@@ -275,7 +314,7 @@ impl OpcodeTable {
                 Mnemonic::JMP,
                 vec![(Mode::Absolute, 0x4C), (Mode::Indirect, 0x6C)],
             ),
-            (Mnemonic::JSR, vec![(Mode::Absolute, 0x20)]),
+            (Mnemonic::JSR, vec![(Mode::Relative, 0x20)]),
             (
                 Mnemonic::LDA,
                 vec![
