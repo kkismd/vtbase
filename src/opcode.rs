@@ -180,11 +180,11 @@ impl OpcodeTable {
 
     pub fn find(
         &self,
-        mnemonic: Mnemonic,
+        mnemonic: &Mnemonic,
         addressing_mode: &AddressingMode,
     ) -> Result<&Opcode, AssemblyError> {
         for opcode in &self.opcode_table {
-            if opcode.mnemonic == mnemonic && opcode.addressing_mode == *addressing_mode {
+            if opcode.mnemonic == *mnemonic && opcode.addressing_mode == *addressing_mode {
                 return Ok(opcode);
             }
         }
@@ -314,7 +314,7 @@ impl OpcodeTable {
                 Mnemonic::JMP,
                 vec![(Mode::Absolute, 0x4C), (Mode::Indirect, 0x6C)],
             ),
-            (Mnemonic::JSR, vec![(Mode::Relative, 0x20)]),
+            (Mnemonic::JSR, vec![(Mode::Absolute, 0x20)]),
             (
                 Mnemonic::LDA,
                 vec![
