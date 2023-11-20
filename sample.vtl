@@ -3,10 +3,10 @@ CHROUT  :=$ffd2      ' EQL $FFD2
 
         X=#0         ' LDX #0
 loop    A=hello+X    ' LDA hello,X
-        !=CHROUT     ' JSR CHROOT
+        !=CHROUT     ' JSR CHROUT
         X=X+1        ' INX
         T=X-#$0d     ' CPX #$0D
-        ;=/,loop   ' BNE loop
+        ;=/,loop     ' BNE loop
 
 stop    #=!          ' RTS
 

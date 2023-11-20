@@ -5,7 +5,9 @@ use nom::Err;
 
 use crate::assembler::LabelEntry;
 use crate::error::AssemblyError;
-use crate::opcode::{AssemblyInstruction, Mnemonic, Mode, Opcode, OpcodeTable, OperandValue};
+use crate::opcode::{
+    AddressingMode, AssemblyInstruction, Mnemonic, Mode, Opcode, OpcodeTable, OperandValue,
+};
 use crate::parser::expression::Expr;
 
 use super::expression::Operator;
@@ -79,7 +81,7 @@ impl Statement {
                 return Ok(AssemblyInstruction::new(
                     Mnemonic::LDX,
                     Mode::Immediate,
-                    OperandValue::Word(num),
+                    OperandValue::Byte(num as u8),
                 ));
             }
             if let Expr::ByteNum(num) = self.expression {
@@ -215,10 +217,10 @@ impl Statement {
 
     fn decode_call(&self) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::Identifier(name) = &self.expression {
-            return self.ok_unresolved_label(Mnemonic::JSR, Mode::Relative, &name);
+            return self.ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name);
         }
         if let Expr::WordNum(num) = self.expression {
-            return self.ok_word(Mnemonic::JSR, Mode::Relative, num);
+            return self.ok_word(Mnemonic::JSR, Mode::Absolute, num);
         }
         self.decode_error()
     }
@@ -299,17 +301,10 @@ impl Statement {
         let assembly_instruction = self.decode()?;
         // find opcode from mnemonic and mode
         let opcode = opcode_table.find(
-            assembly_instruction.mnemonic,
+            &assembly_instruction.mnemonic,
             &assembly_instruction.addressing_mode,
         )?;
-        let operand = assembly_instruction.value;
-        let operand = match operand {
-            OperandValue::None => vec![],
-            OperandValue::Byte(value) => vec![value],
-            OperandValue::Word(value) => vec![value as u8, (value >> 8) as u8],
-            OperandValue::UnresolvedLabel(name) => Self::label_to_relative(&name, &labels, pc),
-            OperandValue::UnresolvedRerative(_) => vec![],
-        };
+        let operand = self.operand_bytes(&assembly_instruction, labels, pc)?;
 
         let mut bytes = vec![];
         bytes.push(opcode.opcode);
@@ -317,31 +312,45 @@ impl Statement {
         Ok(bytes)
     }
 
-    fn absolute_to_relative(address: u16, pc: u16) -> u8 {
+    fn operand_bytes(
+        &self,
+        assembly_instruction: &AssemblyInstruction,
+        labels: &HashMap<String, LabelEntry>,
+        pc: u16,
+    ) -> Result<Vec<u8>, AssemblyError> {
+        let operand = match assembly_instruction.value {
+            OperandValue::None => vec![],
+            OperandValue::Byte(value) => vec![value],
+            OperandValue::Word(value) => vec![value as u8, (value >> 8) as u8],
+            OperandValue::UnresolvedLabel(ref name) => {
+                self.resolve_label(&name, &assembly_instruction.addressing_mode, &labels, pc)?
+            }
+            OperandValue::UnresolvedRerative(addr) => Self::absolute_to_relative(addr, pc),
+        };
+        Ok(operand)
+    }
+
+    fn resolve_label(
+        &self,
+        name: &str,
+        mode: &AddressingMode,
+        labels: &HashMap<String, LabelEntry>,
+        pc: u16,
+    ) -> Result<Vec<u8>, AssemblyError> {
+        if let Some(entry) = labels.get(name) {
+            let absolute_address = entry.address;
+            if mode == &AddressingMode::Relative {
+                return Ok(Self::absolute_to_relative(absolute_address, pc + 2));
+            } else {
+                return Ok(vec![absolute_address as u8, (absolute_address >> 8) as u8]);
+            }
+        } else {
+            Err(AssemblyError::syntax(&format!("unknown label: {}", name)))
+        }
+    }
+
+    fn absolute_to_relative(address: u16, pc: u16) -> Vec<u8> {
         let diff = address.wrapping_sub(pc) as u8;
-        // let diff = address as i32 - pc as i32 - 2;
-        eprintln!(
-            "address: {:04X}({:016b}), pc: {:04X}({:016b}), diff: {:04X}({:016b})",
-            address, address, pc, pc, diff, diff as u8
-        );
-        diff as u8
-    }
-
-    fn label_to_relative(name: &str, labels: &HashMap<String, LabelEntry>, pc: u16) -> Vec<u8> {
-        if let Some(entry) = labels.get(name) {
-            let address = entry.address;
-            vec![Self::absolute_to_relative(address, pc)]
-        } else {
-            vec![]
-        }
-    }
-
-    fn label_to_absolute(name: &str, labels: &HashMap<String, LabelEntry>) -> Vec<u8> {
-        if let Some(entry) = labels.get(name) {
-            let address = entry.address;
-            vec![address as u8, (address >> 8) as u8]
-        } else {
-            vec![]
-        }
+        vec![diff as u8]
     }
 }

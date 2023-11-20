@@ -45,12 +45,31 @@ impl Assembler {
             for statement in &instruction.statements {
                 if statement.is_pseudo() {
                     statement.validate_pseudo_command()?;
-                    self.do_pseudo_command(instruction, statement)?;
+                    self.pseudo_command_pass1(instruction, statement)?;
                     continue;
                 }
                 let assymbly_instruction = statement.decode()?;
                 let len = assymbly_instruction.addressing_mode.length();
                 self.pc += len as u16;
+            }
+        }
+        Ok(())
+    }
+
+    fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+        for mut instruction in instructions {
+            let mut pc = instruction.address;
+            for mut statement in &instruction.statements {
+                let objects;
+                if statement.is_pseudo() {
+                    objects = self.pseudo_command_pass2(statement)?;
+                } else {
+                    objects = statement.compile(&self.opcode_table, &self.labels, pc)?;
+                }
+                let dump = Self::dump_objects(&objects);
+                eprintln!("{}\t{:?}", dump, statement);
+                pc += objects.len() as u16;
+                instruction.object_codes.extend(objects);
             }
         }
         Ok(())
@@ -92,23 +111,6 @@ impl Assembler {
         }
     }
 
-    fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
-        for mut instruction in instructions {
-            let mut pc = instruction.address;
-            for mut statement in &instruction.statements {
-                if !statement.is_pseudo() {
-                    let objects = statement.compile(&self.opcode_table, &self.labels, pc)?;
-                    let dump = Self::dump_objects(&objects);
-                    eprintln!("{}\t{:?}", dump, statement);
-                    pc += objects.len() as u16;
-                    instruction.object_codes.extend(objects);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     fn dump_objects(objects: &Vec<u8>) -> String {
         objects
             .iter()
@@ -117,7 +119,7 @@ impl Assembler {
             .join(",")
     }
 
-    fn do_pseudo_command(
+    fn pseudo_command_pass1(
         &mut self,
         instruction: &Instruction,
         statement: &Statement,
@@ -155,6 +157,19 @@ impl Assembler {
         } else {
             Ok(())
         }
+    }
+    fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+        if statement.command == "?" {
+            if let Expr::StringLiteral(ref s) = statement.expression {
+                let mut objects = Vec::new();
+                for c in s.chars() {
+                    objects.push(c as u8);
+                }
+                return Ok(objects);
+            }
+            return Err(AssemblyError::program("invalid pseudo command"));
+        }
+        return Ok(Vec::new());
     }
 
     fn add_label(&mut self, name: &str, line: usize, address: u16) {
