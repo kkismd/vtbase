@@ -4,6 +4,7 @@ use regex::Regex;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::vec;
 pub mod expression;
 use expression::Expr;
 
@@ -11,7 +12,7 @@ pub mod statement;
 use statement::Statement;
 
 // line of source code
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     pub line_number: usize,
     pub address: u16,
@@ -34,6 +35,16 @@ impl Instruction {
             label,
             statements,
             object_codes,
+        }
+    }
+
+    pub fn new_label(&self, label: &str) -> Self {
+        Self {
+            line_number: self.line_number,
+            address: self.address,
+            label: Some(label.to_string()),
+            statements: vec![],
+            object_codes: vec![],
         }
     }
 }

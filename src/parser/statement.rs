@@ -13,7 +13,7 @@ use crate::parser::expression::Expr;
 use super::expression::Operator;
 
 // instruction in a line of source code
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Statement {
     pub(crate) command: String,
     pub(crate) expression: Expr,
@@ -47,6 +47,31 @@ impl Statement {
             let details = format!("unknown command: <{}>", self.command);
             Err(AssemblyError::syntax(&details))
         }
+    }
+
+    pub fn is_macro(&self) -> bool {
+        match self.command.as_str() {
+            ";" => self.check_macro_if_statement(),
+            "@" => true,
+            _ => false,
+        }
+    }
+
+    // ;=記号,式 の場合はマクロではない
+    // それ以外の二項演算子の場合はマクロ
+    pub fn check_macro_if_statement(&self) -> bool {
+        match &self.expression {
+            Expr::BinOp(left, operator, right) => {
+                if let Expr::SystemOperator(_) = **left {
+                    if *operator == Operator::Comma {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            _ => (),
+        }
+        false
     }
 
     /**
@@ -97,6 +122,14 @@ impl Statement {
                         }
                     }
                 }
+            }
+        }
+        if let Expr::SystemOperator(symbol) = self.expression {
+            if symbol == '+' {
+                return self.ok_none(Mnemonic::INX, Mode::Implied);
+            }
+            if symbol == '-' {
+                return self.ok_none(Mnemonic::DEX, Mode::Implied);
             }
         }
         self.decode_error()

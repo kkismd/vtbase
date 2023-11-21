@@ -3,12 +3,13 @@ CHROUT  :=$ffd2             '       EQL $FFD2
 
         X=#0                '       LDX #0
 loop    A=hello+X           '       LDA hello,X
-        !=CHROUT            '       JSR CHROUT
-        X=+                 '       INX
-        ;=X<13 #=loop       '       CPX #13
+.1      !=CHROUT            '       JSR CHROUT
+.2      X=+                 '       INX
+.3      ;=X<#13 #=loop      '       CPX #13
                             '       BEQ .next
                             '       JMP loop
                             ' .next 
+.4      X=+                 '       INX                                
 stop    #=!                 '       RTS
 
 hello   ?="HELLO, WORLD."

@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::process;
 mod assembler;
+mod assembly_macro;
 mod error;
 mod opcode;
 mod parser;
@@ -56,6 +57,7 @@ fn run(sorce_file: &File, output_file: File) -> Result<(), Box<dyn std::error::E
             inst.line_number, inst.address, inst.label, inst.statements,
         );
     }
+    let mut instructions = assembly_macro::expand(&instructions);
     let mut assembler = Assembler::new();
     assembler.assemble(&mut instructions)?;
 

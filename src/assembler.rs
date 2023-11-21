@@ -82,19 +82,23 @@ impl Assembler {
      */
     fn entry_label(&mut self, instruction: &mut Instruction) -> Result<(), AssemblyError> {
         if let Some(label) = &instruction.label {
+            let mut label = label.clone();
             if label.starts_with(".") {
                 // local label
                 if self.current_label == "" {
                     return Err(AssemblyError::program("global label not found"));
                 }
-                let label = format!("{}{}", self.current_label, label);
+                label = format!("{}{}", self.current_label, label);
+                self.add_entry(&label, instruction)?;
+            } else if label.starts_with("#macro_") {
+                // macro label -- don't memorize current label
                 self.add_entry(&label, instruction)?;
             } else {
                 // global label
-                self.add_entry(label, instruction)?;
+                self.add_entry(&label, instruction)?;
                 self.current_label = label.to_string();
             }
-            if let Some(entry) = self.labels.get_mut(label) {
+            if let Some(entry) = self.labels.get_mut(&label) {
                 entry.address = self.pc;
                 eprintln!("label_entry = {:?}", entry);
             }
