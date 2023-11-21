@@ -21,16 +21,19 @@ use crate::{
     opcode::OpcodeTable,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Add,
     Sub,
     Mul,
     Div,
     Comma,
+    Greater,
+    Less,
+    Equal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     DecimalNum(u16),
     ByteNum(u8),
@@ -90,6 +93,9 @@ fn parse_operator(input: &str) -> IResult<&str, Operator> {
         map(tag("*"), |_| Operator::Mul),
         map(tag("/"), |_| Operator::Div),
         map(tag(","), |_| Operator::Comma),
+        map(tag(">"), |_| Operator::Greater),
+        map(tag("<"), |_| Operator::Less),
+        map(tag("="), |_| Operator::Equal),
     ))(input)
 }
 
