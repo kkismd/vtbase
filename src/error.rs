@@ -7,7 +7,8 @@ use crate::opcode::{AddressingMode, Mnemonic};
 pub enum AssemblyError {
     SyntaxError(String),
     LabelError(String),
-    ProgremError(String),
+    ProgramError(String),
+    MacroError(String),
 }
 
 impl AssemblyError {
@@ -15,7 +16,8 @@ impl AssemblyError {
         match self {
             AssemblyError::SyntaxError(details) => details,
             AssemblyError::LabelError(details) => details,
-            AssemblyError::ProgremError(details) => details,
+            AssemblyError::ProgramError(details) => details,
+            AssemblyError::MacroError(details) => details,
         }
     }
 
@@ -44,7 +46,7 @@ impl AssemblyError {
     }
 
     pub fn program(details: &str) -> Self {
-        Self::ProgremError(format!("program error: {details}"))
+        Self::ProgramError(format!("program error: {details}"))
     }
 
     pub fn opcode_not_found(mnemonic: &Mnemonic, addressing_mode: &AddressingMode) -> Self {
@@ -61,7 +63,8 @@ impl fmt::Display for AssemblyError {
         match self {
             AssemblyError::SyntaxError(details) => write!(f, "parse error: {}", details),
             AssemblyError::LabelError(details) => write!(f, "label error: {}", details),
-            AssemblyError::ProgremError(details) => write!(f, "syntax error: {}", details),
+            AssemblyError::ProgramError(details) => write!(f, "syntax error: {}", details),
+            AssemblyError::MacroError(details) => write!(f, "syntax error: {}", details),
         }
     }
 }

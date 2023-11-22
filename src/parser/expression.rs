@@ -12,14 +12,10 @@ use nom::{
     sequence::{preceded, tuple},
     IResult,
 };
+use std::num::ParseIntError;
 use std::str::FromStr;
-use std::{collections::HashMap, num::ParseIntError};
 
-use crate::{
-    assembler::{Assembler, LabelEntry},
-    error::AssemblyError::{self, SyntaxError},
-    opcode::OpcodeTable,
-};
+use crate::error::AssemblyError::{self};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operator {

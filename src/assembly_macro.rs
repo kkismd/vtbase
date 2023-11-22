@@ -2,31 +2,33 @@ use crate::{
     error::AssemblyError,
     parser::{
         expression::{Expr, Operator},
-        statement::{self, Statement},
+        statement::Statement,
         Instruction,
     },
 };
 
-pub fn expand(instructions: &Vec<Instruction>) -> Vec<Instruction> {
-    instructions
-        .into_iter()
-        .flat_map(transform_instruction)
-        .collect()
+pub fn expand(instructions: &Vec<Instruction>) -> Result<Vec<Instruction>, AssemblyError> {
+    let mut result = Vec::new();
+    for instruction in instructions {
+        let instructions = transform_instruction(instruction)?;
+        result.extend(instructions);
+    }
+    Ok(result)
 }
 
-fn transform_instruction(instruction: &Instruction) -> Vec<Instruction> {
+fn transform_instruction(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
     if instruction.statements.len() == 0 {
-        return vec![instruction.clone()];
+        return Ok(vec![instruction.clone()]);
     }
     let statement = &instruction.statements[0];
     if !statement.is_macro() {
-        return vec![instruction.clone()];
+        return Ok(vec![instruction.clone()]);
     }
     let command = &statement.command;
     match command.as_str() {
         ";" => transform_if_statement(instruction),
         "@" => transform_do_statement(instruction),
-        _ => vec![instruction.clone()],
+        _ => Ok(vec![instruction.clone()]),
     }
 }
 
@@ -43,17 +45,18 @@ fn transform_instruction(instruction: &Instruction) -> Vec<Instruction> {
  *      A=A+1 Y=Y+1
  *  #macro_0.1
  */
-fn transform_if_statement(instruction: &Instruction) -> Vec<Instruction> {
+fn transform_if_statement(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = vec![];
     let label = generate_macro_identifier();
     let header = instruction.new_label(&label);
     let trailer_label = format!("{}.1", label);
     let tlaier = instruction.new_label(&trailer_label);
     result.push(header);
-    result.extend(expand_if_statement(instruction, &trailer_label));
+    let instructions = expand_if_statement(instruction, &trailer_label)?;
+    result.extend(instructions);
     result.push(tlaier);
     dbg!(&result);
-    result
+    Ok(result)
 }
 
 /**
@@ -68,68 +71,70 @@ fn transform_if_statement(instruction: &Instruction) -> Vec<Instruction> {
  * #macro_1.1
  *
  */
-fn expand_if_statement(instruction: &Instruction, macro_label: &str) -> Vec<Instruction> {
+fn expand_if_statement(
+    instruction: &Instruction,
+    macro_label: &str,
+) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = vec![];
     let if_stmt = &instruction.statements[0];
-    if let Statement {
+    let Statement {
         command: cmd,
         expression: expr,
-    } = if_stmt
-    {
-        if cmd == ";" {
-            if let Expr::BinOp(lhs, op, rhs) = expr {
-                // 1st line
-                // T=X-10
-                let stmt1 = Statement::new(
-                    "T".to_string(),
-                    Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()),
-                );
-                let inst1 = Instruction::new(
-                    instruction.line_number,
-                    instruction.address,
-                    None,
-                    vec![stmt1],
-                    vec![],
-                );
-                result.push(inst1);
+    } = if_stmt;
+    if cmd != ";" {
+        return Err(AssemblyError::MacroError(format!("invalid command")));
+    }
+    if let Expr::BinOp(lhs, op, rhs) = expr {
+        // 1st line
+        // T=X-10
+        let stmt1 = Statement::new(
+            "T".to_string(),
+            Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()),
+        );
+        let inst1 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            vec![stmt1],
+            vec![],
+        );
+        result.push(inst1);
 
-                // 2nd line
-                // ;=>,#macro_1.1
-                let sysop = match op {
-                    Operator::Equal => '=',
-                    Operator::Less => '<',
-                    Operator::Greater => '>',
-                    _ => panic!("invalid operator"),
-                };
-                let lhs = Box::new(Expr::SystemOperator(sysop));
-                let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
-                let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
-                let stmt2 = Statement::new(";".to_string(), expr2);
-                let mut inst2 = Instruction::new(
-                    instruction.line_number,
-                    instruction.address,
-                    None,
-                    vec![stmt2],
-                    vec![],
-                );
-                result.push(inst2);
+        // 2nd line
+        // ;=>,#macro_1.1
+        let sysop = match op {
+            Operator::Equal => '=',
+            Operator::Less => '<',
+            Operator::Greater => '>',
+            _ => return Err(AssemblyError::MacroError(format!("invalid operator"))),
+        };
+        let lhs = Box::new(Expr::SystemOperator(sysop));
+        let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
+        let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
+        let stmt2 = Statement::new(";".to_string(), expr2);
+        let inst2 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            vec![stmt2],
+            vec![],
+        );
+        result.push(inst2);
 
-                // 3rd line
-                // A=A+1 Y=Y+1
-                let stmt3 = instruction.statements[1..].to_vec();
-                let inst3 = Instruction::new(
-                    instruction.line_number,
-                    instruction.address,
-                    None,
-                    stmt3,
-                    vec![],
-                );
-                result.push(inst3);
-            }
-        }
+        // 3rd line
+        // A=A+1 Y=Y+1
+        let stmt3 = instruction.statements[1..].to_vec();
+        let inst3 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            stmt3,
+            vec![],
+        );
+        result.push(inst3);
     }
 
-    result
+    Ok(result)
 }
 
 /**
@@ -146,20 +151,16 @@ fn expand_if_statement(instruction: &Instruction, macro_label: &str) -> Vec<Inst
  *     T=X-10
  *     ;=>,#macro_1
  */
-fn transform_do_statement(instruction: &Instruction) -> Vec<Instruction> {
+fn transform_do_statement(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = vec![];
     let label = generate_macro_identifier();
     let header = instruction.new_label(&label);
     result.push(header);
 
     dbg!(&result);
-    result
+    Ok(result)
 }
-
-use std::{
-    f32::consts::E,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 

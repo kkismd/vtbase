@@ -124,7 +124,7 @@ pub enum OperandValue {
     Byte(u8),                // 8ビット値
     Word(u16),               // 16ビット値
     UnresolvedLabel(String), // 未解決のラベル参照 ラベル名を保持する
-    UnresolvedRerative(u16), // 未解決の相対参照 絶対アドレスを保持する
+    UnresolvedRelative(u16), // 未解決の相対参照 絶対アドレスを保持する
 }
 
 impl OperandValue {

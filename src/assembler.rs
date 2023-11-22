@@ -1,6 +1,6 @@
 use crate::opcode;
 use crate::parser::expression::Expr;
-use crate::parser::statement::{self, Statement};
+use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
@@ -57,9 +57,9 @@ impl Assembler {
     }
 
     fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
-        for mut instruction in instructions {
+        for instruction in instructions {
             let mut pc = instruction.address;
-            for mut statement in &instruction.statements {
+            for statement in &instruction.statements {
                 let objects;
                 if statement.is_pseudo() {
                     objects = self.pseudo_command_pass2(statement)?;

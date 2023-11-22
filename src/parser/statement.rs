@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 
-use byteorder::{LittleEndian, WriteBytesExt};
-use nom::Err;
-
 use crate::assembler::LabelEntry;
 use crate::error::AssemblyError;
 use crate::opcode::{
-    AddressingMode, AssemblyInstruction, Mnemonic, Mode, Opcode, OpcodeTable, OperandValue,
+    AddressingMode, AssemblyInstruction, Mnemonic, Mode, OpcodeTable, OperandValue,
 };
 use crate::parser::expression::Expr;
 
@@ -61,7 +58,7 @@ impl Statement {
     // それ以外の二項演算子の場合はマクロ
     pub fn check_macro_if_statement(&self) -> bool {
         match &self.expression {
-            Expr::BinOp(left, operator, right) => {
+            Expr::BinOp(left, operator, _) => {
                 if let Expr::SystemOperator(_) = **left {
                     if *operator == Operator::Comma {
                         return false;
@@ -178,7 +175,7 @@ impl Statement {
         Ok(AssemblyInstruction::new(
             mnemonic,
             mode,
-            OperandValue::UnresolvedLabel(name.to_string()),
+            OperandValue::unresolved_label(name),
         ))
     }
 
@@ -191,7 +188,7 @@ impl Statement {
         Ok(AssemblyInstruction::new(
             mnemonic,
             mode,
-            OperandValue::UnresolvedRerative(addr),
+            OperandValue::UnresolvedRelative(addr),
         ))
     }
 
@@ -358,7 +355,7 @@ impl Statement {
             OperandValue::UnresolvedLabel(ref name) => {
                 self.resolve_label(&name, &assembly_instruction.addressing_mode, &labels, pc)?
             }
-            OperandValue::UnresolvedRerative(addr) => Self::absolute_to_relative(addr, pc),
+            OperandValue::UnresolvedRelative(addr) => Self::absolute_to_relative(addr, pc),
         };
         Ok(operand)
     }
