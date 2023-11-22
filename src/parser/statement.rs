@@ -78,12 +78,17 @@ impl Statement {
     pub fn decode(&self) -> Result<AssemblyInstruction, AssemblyError> {
         match self.command.as_str() {
             "X" => self.decode_x(),
+            "Y" => self.decode_y(),
             "A" => self.decode_a(),
             "T" => self.decode_t(),
+            "C" => self.decode_c(),
             "!" => self.decode_call(),
             "#" => self.decode_goto(),
             ";" => self.decode_if(),
-            _ => todo!(),
+            _ => {
+                dbg!(self);
+                todo!()
+            }
         }
     }
 
@@ -106,16 +111,19 @@ impl Statement {
                     OperandValue::Byte(num as u8),
                 ));
             }
-            if let Expr::ByteNum(num) = self.expression {
-                return self.ok_byte(Mnemonic::LDX, Mode::ZeroPage, num);
-            }
+        }
+        if let Expr::ByteNum(num) = self.expression {
+            return self.ok_byte(Mnemonic::LDX, Mode::ZeroPage, num);
         }
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref s) = **left {
-                if *operator == Operator::Add {
-                    if let Expr::DecimalNum(n) = **right {
-                        if s == "X" && n == 1 {
+                if let Expr::DecimalNum(n) = **right {
+                    if s == "X" && n == 1 {
+                        if *operator == Operator::Add {
                             return self.ok_none(Mnemonic::INX, Mode::Implied);
+                        }
+                        if *operator == Operator::Sub {
+                            return self.ok_none(Mnemonic::DEX, Mode::Implied);
                         }
                     }
                 }
@@ -132,64 +140,44 @@ impl Statement {
         self.decode_error()
     }
 
-    fn ok_byte(
-        &self,
-        mnemonic: Mnemonic,
-        mode: Mode,
-        num: u8,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(
-            mnemonic,
-            mode,
-            OperandValue::Byte(num),
-        ))
-    }
-
-    fn ok_word(
-        &self,
-        mnemonic: Mnemonic,
-        mode: Mode,
-        num: u16,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(
-            mnemonic,
-            mode,
-            OperandValue::Word(num),
-        ))
-    }
-
-    fn ok_none(
-        &self,
-        mnemonic: Mnemonic,
-        mode: Mode,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(mnemonic, mode, OperandValue::None))
-    }
-
-    fn ok_unresolved_label(
-        &self,
-        mnemonic: Mnemonic,
-        mode: Mode,
-        name: &str,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(
-            mnemonic,
-            mode,
-            OperandValue::unresolved_label(name),
-        ))
-    }
-
-    fn ok_unresolved_relative(
-        &self,
-        mnemonic: Mnemonic,
-        mode: Mode,
-        addr: u16,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(
-            mnemonic,
-            mode,
-            OperandValue::UnresolvedRelative(addr),
-        ))
+    fn decode_y(&self) -> Result<AssemblyInstruction, AssemblyError> {
+        if let Expr::Immediate(expr) = &self.expression {
+            if let Expr::ByteNum(num) = **expr {
+                return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num);
+            }
+            if let Expr::DecimalNum(num) = **expr {
+                if num > 255 {
+                    return Err(AssemblyError::syntax("operand must be 8bit"));
+                }
+                return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num as u8);
+            }
+        }
+        if let Expr::ByteNum(num) = self.expression {
+            return self.ok_byte(Mnemonic::LDY, Mode::ZeroPage, num);
+        }
+        if let Expr::BinOp(left, operator, right) = &self.expression {
+            if let Expr::Identifier(ref s) = **left {
+                if let Expr::DecimalNum(n) = **right {
+                    if s == "Y" && n == 1 {
+                        if *operator == Operator::Add {
+                            return self.ok_none(Mnemonic::INY, Mode::Implied);
+                        }
+                        if *operator == Operator::Sub {
+                            return self.ok_none(Mnemonic::DEY, Mode::Implied);
+                        }
+                    }
+                }
+            }
+        }
+        if let Expr::SystemOperator(symbol) = self.expression {
+            if symbol == '+' {
+                return self.ok_none(Mnemonic::INY, Mode::Implied);
+            }
+            if symbol == '-' {
+                return self.ok_none(Mnemonic::DEY, Mode::Implied);
+            }
+        }
+        self.decode_error()
     }
 
     fn decode_a(&self) -> Result<AssemblyInstruction, AssemblyError> {
@@ -218,6 +206,28 @@ impl Statement {
                         }
                     }
                 }
+                // A=A-#$48
+                if name == "A" && *operator == Operator::Sub {
+                    if let Expr::Immediate(ref expr) = **right {
+                        if let Expr::DecimalNum(num) = **expr {
+                            if num < 256 {
+                                return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num as u8);
+                            }
+                        }
+                        if let Expr::ByteNum(num) = **expr {
+                            return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num);
+                        }
+                    }
+                }
+            }
+        }
+        if let Expr::Identifier(name) = &self.expression {
+            if name == "X" {
+                return self.ok_none(Mnemonic::TXA, Mode::Implied);
+            } else if name == "Y" {
+                return self.ok_none(Mnemonic::TYA, Mode::Implied);
+            } else {
+                return self.ok_unresolved_label(Mnemonic::LDA, Mode::Absolute, &name);
             }
         }
         self.decode_error()
@@ -229,17 +239,43 @@ impl Statement {
                 if *operator == Operator::Sub {
                     if let Expr::Immediate(ref expr) = **right {
                         if let Expr::DecimalNum(num) = **expr {
-                            if reg == "X" && num < 256 {
-                                return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num as u8);
+                            if num < 256 {
+                                if reg == "A" {
+                                    return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num as u8);
+                                }
+                                if reg == "X" {
+                                    return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num as u8);
+                                }
+                                if reg == "Y" {
+                                    return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num as u8);
+                                }
                             }
                         }
                         if let Expr::ByteNum(num) = **expr {
+                            if reg == "A" {
+                                return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num);
+                            }
                             if reg == "X" {
                                 return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num);
+                            }
+                            if reg == "Y" {
+                                return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num);
                             }
                         }
                     }
                 }
+            }
+        }
+        self.decode_error()
+    }
+
+    fn decode_c(&self) -> Result<AssemblyInstruction, AssemblyError> {
+        if let Expr::DecimalNum(num) = self.expression {
+            if num == 1 {
+                return self.ok_none(Mnemonic::SEC, Mode::Implied);
+            }
+            if num == 0 {
+                return self.ok_none(Mnemonic::CLC, Mode::Implied);
             }
         }
         self.decode_error()
@@ -309,6 +345,66 @@ impl Statement {
             }
         }
         self.decode_error()
+    }
+
+    fn ok_byte(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+        num: u8,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        Ok(AssemblyInstruction::new(
+            mnemonic,
+            mode,
+            OperandValue::Byte(num),
+        ))
+    }
+
+    fn ok_word(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+        num: u16,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        Ok(AssemblyInstruction::new(
+            mnemonic,
+            mode,
+            OperandValue::Word(num),
+        ))
+    }
+
+    fn ok_none(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        Ok(AssemblyInstruction::new(mnemonic, mode, OperandValue::None))
+    }
+
+    fn ok_unresolved_label(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+        name: &str,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        Ok(AssemblyInstruction::new(
+            mnemonic,
+            mode,
+            OperandValue::unresolved_label(name),
+        ))
+    }
+
+    fn ok_unresolved_relative(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+        addr: u16,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        Ok(AssemblyInstruction::new(
+            mnemonic,
+            mode,
+            OperandValue::UnresolvedRelative(addr),
+        ))
     }
 
     fn decode_error(&self) -> Result<AssemblyInstruction, AssemblyError> {
