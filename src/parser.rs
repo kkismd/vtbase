@@ -111,7 +111,7 @@ fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
 }
 
 fn tokenize(text: &str) -> Vec<String> {
-    let re = Regex::new(r#"\S=("[^"]*"|\S)+"#).unwrap();
+    let re = Regex::new(r#"\S=("[^"]*"|\S)+|\S"#).unwrap();
     let mut tokens = Vec::new();
 
     for cap in re.captures_iter(text) {
@@ -119,6 +119,15 @@ fn tokenize(text: &str) -> Vec<String> {
     }
 
     tokens
+}
+#[test]
+fn test_tokenize() {
+    let tokens = tokenize("@ A=1 B=2 C=\"hello world\"");
+    assert_eq!(tokens.len(), 4);
+    assert_eq!(tokens[0], "@");
+    assert_eq!(tokens[1], "A=1");
+    assert_eq!(tokens[2], "B=2");
+    assert_eq!(tokens[3], "C=\"hello world\"");
 }
 
 fn remove_after_quote(s: &str) -> String {

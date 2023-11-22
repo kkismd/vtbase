@@ -55,22 +55,10 @@ fn transform_if_statement(instruction: &Instruction) -> Result<Vec<Instruction>,
     let instructions = expand_if_statement(instruction, &trailer_label)?;
     result.extend(instructions);
     result.push(tlaier);
-    dbg!(&result);
+    // dbg!(&result);
     Ok(result)
 }
 
-/**
- * 元コード
- *  ;=X>10 A=A+1 Y=Y+1
- *
- * 展開系
- * #macro_1
- *   T=X-10
- *   ;=>,#macro_1.1
- *   A=A+1 Y=Y+1
- * #macro_1.1
- *
- */
 fn expand_if_statement(
     instruction: &Instruction,
     macro_label: &str,
@@ -106,7 +94,12 @@ fn expand_if_statement(
             Operator::Equal => '=',
             Operator::Less => '<',
             Operator::Greater => '>',
-            _ => return Err(AssemblyError::MacroError(format!("invalid operator"))),
+            _ => {
+                return Err(AssemblyError::MacroError(format!(
+                    "invalid operator {:?}",
+                    op
+                )))
+            }
         };
         let lhs = Box::new(Expr::SystemOperator(sysop));
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
@@ -157,7 +150,6 @@ fn transform_do_statement(instruction: &Instruction) -> Result<Vec<Instruction>,
     let header = instruction.new_label(&label);
     result.push(header);
 
-    dbg!(&result);
     Ok(result)
 }
 use std::sync::atomic::{AtomicUsize, Ordering};

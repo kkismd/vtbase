@@ -1,15 +1,36 @@
-CHROUT  :=$ffd2             '       EQL $FFD2
-        *=$080e             '       ORG $080E
+CHROUT  :=$ffd2                 '       EQL $FFD2
+        *=$080e                 '       ORG $080E
 
-        X=#0                '       LDX #0
-loop    A=hello+X           '       LDA hello,X
-.1      !=CHROUT            '       JSR CHROUT
-.2      X=+                 '       INX
-.3      ;=X<#13 #=loop      '       CPX #13
-                            '       BEQ .next
-                            '       JMP loop
-                            ' .next 
-.4      X=+                 '       INX                                
-stop    #=!                 '       RTS
+        X=#0                    '       LDX #0
+loop    A=hello+X               '       LDA hello,X
+.1      !=CHROUT                '       JSR CHROUT
+.2      X=+                     '       INX
+.3      ;=X<#13 #=loop          '       CPX #13
+                                '       BCC .next
+                                '       JMP loop
+                                ' .next 
+.4      X=+                     '       INX                                
+
+        Y=0                     '       LDY #0
+        @                       ' .again
+        A=Y                     '       TYA
+        !=byte2char             '       JSR byte2char
+        Y=Y+1                   '       INY
+        @=Y<#20                 '       CPY #20
+                                '       BCS .next3
+                                '       JMP .again
+                                ' .next3
+
+
+stop    #=!                     '       RTS
+
+byte2char
+        A=A-#$30                '       CLC
+        ;=A>#$A A=A-#17         '       SBC #$30
+                                '       BCS .next2
+                                '       SBC #17
+                                ' .next2
+        !=CHROUT                '       JSR CHROUT
+        #=!                     '       RTS
 
 hello   ?="HELLO, WORLD."
