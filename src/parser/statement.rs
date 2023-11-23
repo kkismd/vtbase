@@ -181,19 +181,15 @@ impl Statement {
     }
 
     fn decode_a(&self) -> Result<AssemblyInstruction, AssemblyError> {
-        if let Expr::Immediate(expr) = &self.expression {
-            if let Expr::ByteNum(num) = **expr {
-                return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num);
-            }
-            if let Expr::DecimalNum(num) = **expr {
-                if num > 255 {
-                    return Err(AssemblyError::syntax("operand must be 8bit"));
-                }
+        if let Some(num) = self.match_immediate() {
+            if num > 255 {
+                return Err(AssemblyError::syntax("operand must be 8bit"));
+            } else {
                 return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num as u8);
             }
-            if let Expr::ByteNum(num) = self.expression {
-                return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, num);
-            }
+        }
+        if let Expr::ByteNum(num) = self.expression {
+            return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, num);
         }
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref name) = **left {
@@ -216,6 +212,19 @@ impl Statement {
                         }
                         if let Expr::ByteNum(num) = **expr {
                             return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num);
+                        }
+                    }
+                }
+                // A=A+#$48
+                if name == "A" && *operator == Operator::Add {
+                    if let Expr::Immediate(ref expr) = **right {
+                        if let Expr::DecimalNum(num) = **expr {
+                            if num < 256 {
+                                return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num as u8);
+                            }
+                        }
+                        if let Expr::ByteNum(num) = **expr {
+                            return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num);
                         }
                     }
                 }
@@ -310,7 +319,7 @@ impl Statement {
             if let Expr::SystemOperator(symbol) = **expr_left {
                 match **expr_right {
                     Expr::WordNum(addr) => match symbol {
-                        '/' => {
+                        '/' | '~' | '!' => {
                             return self.ok_unresolved_relative(Mnemonic::BNE, Mode::Relative, addr)
                         }
                         '=' => {
@@ -345,6 +354,18 @@ impl Statement {
             }
         }
         self.decode_error()
+    }
+
+    fn match_immediate(&self) -> Option<u16> {
+        if let Expr::Immediate(expr) = &self.expression {
+            if let Expr::ByteNum(num) = **expr {
+                return Some(num as u16);
+            }
+            if let Expr::DecimalNum(num) = **expr {
+                return Some(num);
+            }
+        }
+        None
     }
 
     fn ok_byte(

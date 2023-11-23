@@ -45,7 +45,7 @@ fn transform_instruction(
  * 展開形
  *  #macro_0
  *      T=X-10
- *      ;=>,#macro_0.1
+ *      ;=<,#macro_0.1
  *      A=A+1 Y=Y+1
  *  #macro_0.1
  */
@@ -93,11 +93,13 @@ fn expand_if_statement(
         result.push(inst1);
 
         // 2nd line
-        // ;=>,#macro_1.1
+        // ;=<,#macro_1.1
         let sysop = match op {
-            Operator::Equal => '=',
-            Operator::Less => '<',
-            Operator::Greater => '>',
+            // 条件を逆にしてTHEN節をスキップする判定を行う
+            Operator::Equal => '/',
+            Operator::NotEqual => '=',
+            Operator::Less => '>',
+            Operator::Greater => '<',
             _ => {
                 return Err(AssemblyError::MacroError(format!(
                     "invalid operator {:?}",
@@ -146,7 +148,9 @@ fn expand_if_statement(
  *     A=A+1 Y=Y+1
  *     X=-
  *     T=X-10
- *     ;=>,#macro_1
+ *     ;=<,#macro_1.1
+ *     #=#macro_1
+ * #macro_1.1
  */
 fn transform_do_statement(
     instruction: &Instruction,
@@ -186,7 +190,7 @@ fn transform_do_statement(
         );
         result.push(rest_instruction);
     }
-    dbg!(&result);
+    // dbg!(&result);
     Ok(result)
 }
 
@@ -216,11 +220,13 @@ fn expand_do_statement(
         result.push(inst1);
 
         // 2nd line
-        // ;=>,#macro_1
+        // ;=<,#macro_1.1
         let sysop = match op {
-            Operator::Equal => '=',
-            Operator::Less => '<',
-            Operator::Greater => '>',
+            // 条件を逆にしてループを抜ける判定を行う
+            Operator::Equal => '/',
+            Operator::NotEqual => '=',
+            Operator::Less => '>',
+            Operator::Greater => '<',
             _ => {
                 return Err(AssemblyError::MacroError(format!(
                     "invalid operator {:?}",
@@ -229,7 +235,8 @@ fn expand_do_statement(
             }
         };
         let lhs = Box::new(Expr::SystemOperator(sysop));
-        let rhs = Box::new(Expr::Identifier(label.to_string()));
+        let next_label = format!("{}.1", label);
+        let rhs = Box::new(Expr::Identifier(next_label.clone()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
         let stmt2 = Statement::new(";".to_string(), expr2);
         let inst2 = Instruction::new(
@@ -240,6 +247,21 @@ fn expand_do_statement(
             vec![],
         );
         result.push(inst2);
+        // 3rd line
+        // #=#macro_1
+        let stmt3 = Statement::new("#".to_string(), Expr::Identifier(label.to_string()));
+        let inst3 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            vec![stmt3],
+            vec![],
+        );
+        result.push(inst3);
+        // 4th line
+        // #macro_1.1
+        let inst4 = instruction.new_label(next_label.as_str());
+        result.push(inst4);
     }
 
     Ok(result)

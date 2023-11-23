@@ -3,7 +3,7 @@ use nom::{
     bytes::complete::escaped,
     bytes::complete::is_not,
     bytes::complete::tag,
-    character::complete::hex_digit1,
+    bytes::complete::take_while_m_n,
     character::complete::{alphanumeric1, digit1, none_of, one_of},
     combinator::{map, verify},
     combinator::{map_res, recognize},
@@ -27,6 +27,7 @@ pub enum Operator {
     Greater,
     Less,
     Equal,
+    NotEqual,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,8 +64,7 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
     alt((
         parse_bin_op,
         parse_decimal,
-        parse_word,
-        parse_byte,
+        parse_hex,
         parse_immediate,
         parse_sysop,
         parse_identifier,
@@ -76,8 +76,7 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
 fn parse_term(input: &str) -> IResult<&str, Expr> {
     alt((
         parse_decimal,
-        parse_word,
-        parse_byte,
+        parse_hex,
         parse_immediate,
         parse_sysop,
         parse_identifier,
@@ -96,6 +95,7 @@ fn parse_operator(input: &str) -> IResult<&str, Operator> {
         map(tag(">"), |_| Operator::Greater),
         map(tag("<"), |_| Operator::Less),
         map(tag("="), |_| Operator::Equal),
+        map(tag("~"), |_| Operator::NotEqual),
     ))(input)
 }
 
@@ -109,36 +109,25 @@ fn parse_decimal(input: &str) -> IResult<&str, Expr> {
     )(input)
 }
 
-fn parse_hex(input: &str) -> IResult<&str, u32> {
-    map_res(hex_digit1, |hex_str: &str| u32::from_str_radix(hex_str, 16))(input)
+fn is_hex_digit(c: char) -> bool {
+    c.is_digit(16)
 }
 
-fn parse_byte(input: &str) -> IResult<&str, Expr> {
-    map_res(
-        preceded(
-            tag("$"),
-            verify(parse_hex, |num: &u32| *num <= u8::MAX as u32),
-        ),
-        |num: u32| -> Result<Expr, ParseIntError> { Ok(Expr::ByteNum(num as u8)) },
-    )(input)
-}
-
-fn parse_word(input: &str) -> IResult<&str, Expr> {
-    map_res(
-        preceded(
-            tag("$"),
-            verify(parse_hex, |num: &u32| *num <= u16::MAX as u32),
-        ),
-        |num: u32| -> Result<Expr, ParseIntError> { Ok(Expr::WordNum(num as u16)) },
-    )(input)
+fn parse_hex(input: &str) -> IResult<&str, Expr> {
+    let (input, hex_str) = preceded(tag("$"), take_while_m_n(1, 4, is_hex_digit))(input)?;
+    let num = u32::from_str_radix(hex_str, 16).map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Char))
+    })?;
+    if hex_str.len() <= 2 {
+        Ok((input, Expr::ByteNum(num as u8)))
+    } else {
+        Ok((input, Expr::WordNum(num as u16)))
+    }
 }
 
 fn parse_immediate(input: &str) -> IResult<&str, Expr> {
     map_res(
-        preceded(
-            tag("#"),
-            nom::branch::alt((parse_byte, parse_word, parse_decimal)),
-        ),
+        preceded(tag("#"), nom::branch::alt((parse_hex, parse_decimal))),
         |expr: Expr| -> Result<Expr, ParseIntError> { Ok(Expr::Immediate(Box::new(expr))) },
     )(input)
 }
@@ -153,6 +142,21 @@ fn parse_bin_op(input: &str) -> IResult<&str, Expr> {
     let (input, (left, op, right)) = tuple((parse_term, parse_operator, parse_expr))(input)?;
 
     Ok((input, Expr::BinOp(Box::new(left), op, Box::new(right))))
+}
+
+#[test]
+fn test_parse_binop() {
+    assert_eq!(
+        parse_expr("A>#$A"),
+        Ok((
+            "",
+            Expr::BinOp(
+                Box::new(Expr::Identifier("A".to_string())),
+                Operator::Greater,
+                Box::new(Expr::Immediate(Box::new(Expr::ByteNum(10))))
+            )
+        ))
+    );
 }
 
 fn parse_parenthesized(input: &str) -> IResult<&str, Expr> {

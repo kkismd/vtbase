@@ -1,36 +1,47 @@
-CHROUT  :=$ffd2                 '       EQL $FFD2
-        *=$080e                 '       ORG $080E
+' PROGRAM Hello World 
+'   for VTBase (Very Tiny Base assembler)
+'
+CONINIT :=$FD1B
+CONOUT  :=$FD39
+UNIMON  :=$F600
+'
+        *=$D000                 '       ORG $D000
 
+        !=CONINIT               '       JSR CONINIT
         X=#0                    '       LDX #0
 loop    A=hello+X               '       LDA hello,X
-.1      !=CHROUT                '       JSR CHROUT
-.2      X=+                     '       INX
-.3      ;=X<#13 #=loop          '       CPX #13
-                                '       BCC .next
+        !=CONOUT                '       JSR CONOUT
+        X=+                     '       INX
+        ;=X<#13 #=loop          '       CPX #13
+                                '       BCS .macro0_if_next
                                 '       JMP loop
-                                ' .next 
-.4      X=+                     '       INX                                
+                                ' .macro0_if_next 
+        !=newline
 
         Y=#0                    '       LDY #0
-        @                       ' .again
+        @                       ' .macro1_do
         A=Y                     '       TYA
         !=byte2char             '       JSR byte2char
         Y=Y+1                   '       INY
         @=Y<#20                 '       CPY #20
-                                '       BCS .next3
-                                '       JMP .again
-                                ' .next3
+                                '       BCS .macro1_do_next
+                                '       JMP .macro1_do
+                                ' .macro1_do_next
+        !=newline
 
-
-stop    #=!                     '       RTS
+stop    #=UNIMON                '       JMP UNIMON
 
 byte2char
-        C=0                     '       CLC
-        A=A-#$30                '       SBC #$30
-        ;=A>#$A A=A-#17         '       BCS .next2
-                                '       SBC #17
-                                ' .next2
-        !=CHROUT                '       JSR CHROUT
+        ;=A>#$A C=0 A=A+#7
+        A=A+#$30
+        !=CONOUT                '       JSR CONOUT
         #=!                     '       RTS
 
-hello   ?="HELLO, WORLD."
+newline
+        A=#$0d
+        !=CONOUT
+        A=#$0A
+        !=CONOUT
+        #=!
+
+hello   ?="HELLO, WORLD."       '       !text "HELLO, WORLD."
