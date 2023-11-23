@@ -11,7 +11,7 @@ loop    A=hello+X               '       LDA hello,X
                                 ' .next 
 .4      X=+                     '       INX                                
 
-        Y=0                     '       LDY #0
+        Y=#0                    '       LDY #0
         @                       ' .again
         A=Y                     '       TYA
         !=byte2char             '       JSR byte2char
@@ -25,9 +25,9 @@ loop    A=hello+X               '       LDA hello,X
 stop    #=!                     '       RTS
 
 byte2char
-        A=A-#$30                '       CLC
-        ;=A>#$A A=A-#17         '       SBC #$30
-                                '       BCS .next2
+        C=0                     '       CLC
+        A=A-#$30                '       SBC #$30
+        ;=A>#$A A=A-#17         '       BCS .next2
                                 '       SBC #17
                                 ' .next2
         !=CHROUT                '       JSR CHROUT

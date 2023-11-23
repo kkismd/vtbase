@@ -9,14 +9,18 @@ use crate::{
 
 pub fn expand(instructions: &Vec<Instruction>) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = Vec::new();
+    let mut stack = Vec::new();
     for instruction in instructions {
-        let instructions = transform_instruction(instruction)?;
+        let instructions = transform_instruction(instruction, &mut stack)?;
         result.extend(instructions);
     }
     Ok(result)
 }
 
-fn transform_instruction(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
+fn transform_instruction(
+    instruction: &Instruction,
+    stack: &mut Vec<String>,
+) -> Result<Vec<Instruction>, AssemblyError> {
     if instruction.statements.len() == 0 {
         return Ok(vec![instruction.clone()]);
     }
@@ -27,7 +31,7 @@ fn transform_instruction(instruction: &Instruction) -> Result<Vec<Instruction>, 
     let command = &statement.command;
     match command.as_str() {
         ";" => transform_if_statement(instruction),
-        "@" => transform_do_statement(instruction),
+        "@" => transform_do_statement(instruction, stack),
         _ => Ok(vec![instruction.clone()]),
     }
 }
@@ -144,14 +148,103 @@ fn expand_if_statement(
  *     T=X-10
  *     ;=>,#macro_1
  */
-fn transform_do_statement(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
+fn transform_do_statement(
+    instruction: &Instruction,
+    stack: &mut Vec<String>,
+) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = vec![];
-    let label = generate_macro_identifier();
-    let header = instruction.new_label(&label);
-    result.push(header);
+    let statement = &instruction.statements[0];
+    if statement.expression == Expr::Empty {
+        // ループ開始行 @ の処理
+        let label = generate_macro_identifier();
+        stack.push(label.clone());
+        let line = instruction.new_label(&label);
+        result.push(line);
+        let rest = instruction.statements[1..].to_vec();
+        let rest_instruction = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            rest,
+            vec![],
+        );
+        result.push(rest_instruction);
+    } else {
+        // ループ終了行 @=X>10 の処理
+        let label = stack
+            .pop()
+            .ok_or(AssemblyError::MacroError(format!("unmatch do loop")))?;
+        let instructions = expand_do_statement(instruction, &label)?;
+        result.extend(instructions);
+        let stmts = &instruction.statements[1..];
+        let rest_instruction = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            stmts.to_vec(),
+            vec![],
+        );
+        result.push(rest_instruction);
+    }
+    dbg!(&result);
+    Ok(result)
+}
+
+fn expand_do_statement(
+    instruction: &Instruction,
+    label: &str,
+) -> Result<Vec<Instruction>, AssemblyError> {
+    let mut result = vec![];
+    let Statement {
+        command: _,
+        expression: expr,
+    } = &instruction.statements[0];
+    if let Expr::BinOp(lhs, op, rhs) = expr {
+        // 1st line
+        // T=X-10
+        let stmt1 = Statement::new(
+            "T".to_string(),
+            Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()),
+        );
+        let inst1 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            vec![stmt1],
+            vec![],
+        );
+        result.push(inst1);
+
+        // 2nd line
+        // ;=>,#macro_1
+        let sysop = match op {
+            Operator::Equal => '=',
+            Operator::Less => '<',
+            Operator::Greater => '>',
+            _ => {
+                return Err(AssemblyError::MacroError(format!(
+                    "invalid operator {:?}",
+                    op
+                )))
+            }
+        };
+        let lhs = Box::new(Expr::SystemOperator(sysop));
+        let rhs = Box::new(Expr::Identifier(label.to_string()));
+        let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
+        let stmt2 = Statement::new(";".to_string(), expr2);
+        let inst2 = Instruction::new(
+            instruction.line_number,
+            instruction.address,
+            None,
+            vec![stmt2],
+            vec![],
+        );
+        result.push(inst2);
+    }
 
     Ok(result)
 }
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);

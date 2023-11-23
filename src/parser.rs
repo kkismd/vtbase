@@ -96,15 +96,18 @@ fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, AssemblyError
 }
 
 fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
-    let re = Regex::new(r"^(?P<command>\S)=(?P<operand>.+)$")
-        .map_err(|_| AssemblyError::token(token))?;
-    let cap = re.captures(&token).ok_or(AssemblyError::token(token))?;
-    let command = cap.name("command").map_or("", |m| m.as_str());
-    let op_str = cap
-        .name("operand")
+    let assignment_pattern = Regex::new(r"^(?P<command>\S)=(?P<operand>.+)$").unwrap();
+    let single_pattern = Regex::new(r"(?P<command>\S)").unwrap();
+    let cap = assignment_pattern
+        .captures(&token)
+        .or_else(|| single_pattern.captures(&token))
+        .ok_or(AssemblyError::token(token))?;
+    let command = cap
+        .name("command")
         .map(|m| m.as_str())
         .ok_or(AssemblyError::token(token))?;
-    let expression = Expr::parse(op_str)?;
+    let operand = cap.name("operand").map(|m| m.as_str()).unwrap_or("");
+    let expression = Expr::parse(operand)?;
 
     let statement = Statement::new(command.to_string(), expression);
     Ok(statement)

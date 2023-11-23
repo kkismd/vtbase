@@ -29,7 +29,7 @@ pub enum Operator {
     Equal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     DecimalNum(u16),
     ByteNum(u8),
@@ -40,10 +40,14 @@ pub enum Expr {
     BinOp(Box<Expr>, Operator, Box<Expr>),
     Parenthesized(Box<Expr>),
     SystemOperator(char),
+    Empty,
 }
 
 impl Expr {
     pub fn parse(input: &str) -> Result<Expr, AssemblyError> {
+        if input.is_empty() {
+            return Ok(Expr::Empty);
+        }
         let result = parse_expr(input);
         match result {
             Ok((_, expr)) => Ok(expr),
