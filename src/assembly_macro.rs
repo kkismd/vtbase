@@ -28,7 +28,7 @@ fn transform_instruction(
     if !statement.is_macro() {
         return Ok(vec![instruction.clone()]);
     }
-    let command = &statement.command;
+    let command = statement.command()?;
     match command.as_str() {
         ";" => transform_if_statement(instruction),
         "@" => transform_do_statement(instruction, stack),
@@ -69,20 +69,15 @@ fn expand_if_statement(
 ) -> Result<Vec<Instruction>, AssemblyError> {
     let mut result = vec![];
     let if_stmt = &instruction.statements[0];
-    let Statement {
-        command: cmd,
-        expression: expr,
-    } = if_stmt;
+    let cmd = if_stmt.command()?;
+    let expr = &if_stmt.expression;
     if cmd != ";" {
         return Err(AssemblyError::MacroError(format!("invalid command")));
     }
     if let Expr::BinOp(lhs, op, rhs) = expr {
         // 1st line
         // T=X-10
-        let stmt1 = Statement::new(
-            "T".to_string(),
-            Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()),
-        );
+        let stmt1 = Statement::new("T", Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()));
         let inst1 = Instruction::new(
             instruction.line_number,
             instruction.address,
@@ -110,7 +105,7 @@ fn expand_if_statement(
         let lhs = Box::new(Expr::SystemOperator(sysop));
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
-        let stmt2 = Statement::new(";".to_string(), expr2);
+        let stmt2 = Statement::new(";", expr2);
         let inst2 = Instruction::new(
             instruction.line_number,
             instruction.address,
@@ -206,10 +201,7 @@ fn expand_do_statement(
     if let Expr::BinOp(lhs, op, rhs) = expr {
         // 1st line
         // T=X-10
-        let stmt1 = Statement::new(
-            "T".to_string(),
-            Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()),
-        );
+        let stmt1 = Statement::new("T", Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()));
         let inst1 = Instruction::new(
             instruction.line_number,
             instruction.address,
@@ -238,7 +230,7 @@ fn expand_do_statement(
         let next_label = format!("{}.1", label);
         let rhs = Box::new(Expr::Identifier(next_label.clone()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
-        let stmt2 = Statement::new(";".to_string(), expr2);
+        let stmt2 = Statement::new(";", expr2);
         let inst2 = Instruction::new(
             instruction.line_number,
             instruction.address,
@@ -249,7 +241,7 @@ fn expand_do_statement(
         result.push(inst2);
         // 3rd line
         // #=#macro_1
-        let stmt3 = Statement::new("#".to_string(), Expr::Identifier(label.to_string()));
+        let stmt3 = Statement::new("#", Expr::Identifier(label.to_string()));
         let inst3 = Instruction::new(
             instruction.line_number,
             instruction.address,

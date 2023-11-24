@@ -17,7 +17,13 @@ pub struct Assembler {
 pub struct LabelEntry {
     pub name: String,
     pub line: usize,
-    pub address: u16,
+    pub address: Address,
+}
+
+#[derive(Debug)]
+pub enum Address {
+    Full(u16),
+    ZeroPage(u8),
 }
 
 impl Assembler {
@@ -99,7 +105,7 @@ impl Assembler {
                 self.current_label = label.to_string();
             }
             if let Some(entry) = self.labels.get_mut(&label) {
-                entry.address = self.pc;
+                entry.address = Address::Full(self.pc);
                 eprintln!("label_entry = {:?}", entry);
             }
         }
@@ -128,14 +134,15 @@ impl Assembler {
         instruction: &Instruction,
         statement: &Statement,
     ) -> Result<(), AssemblyError> {
-        if statement.command == "*" {
+        let command = statement.command()?;
+        if command == "*" {
             // set stgart address
             if let Expr::WordNum(address) = statement.expression {
                 self.origin = address;
                 self.pc = address;
             }
             Ok(())
-        } else if statement.command == ":" {
+        } else if command == ":" {
             // label def
             let label_name = instruction
                 .label
@@ -148,11 +155,16 @@ impl Assembler {
                 .ok_or(AssemblyError::program("label not found"))?;
             // set address to entry
             if let Expr::WordNum(address) = statement.expression {
-                label_entry.address = address;
+                label_entry.address = Address::Full(address);
                 eprintln!("label def: {:?}", label_entry);
+            } else if let Expr::ByteNum(address) = statement.expression {
+                label_entry.address = Address::ZeroPage(address as u8);
+                eprintln!("label def: {:?}", label_entry);
+            } else {
+                return Err(AssemblyError::program("invalid label def"));
             }
             Ok(())
-        } else if statement.command == "?" {
+        } else if command == "?" {
             if let Expr::StringLiteral(ref s) = statement.expression {
                 let len = s.len();
                 self.pc += len as u16;
@@ -163,7 +175,8 @@ impl Assembler {
         }
     }
     fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
-        if statement.command == "?" {
+        let command = statement.command()?;
+        if command == "?" {
             if let Expr::StringLiteral(ref s) = statement.expression {
                 let mut objects = Vec::new();
                 for c in s.chars() {
@@ -180,7 +193,7 @@ impl Assembler {
         let entry = LabelEntry {
             name: name.to_string(),
             line: line,
-            address: address,
+            address: Address::Full(address),
         };
         self.labels.insert(name.to_string(), entry);
     }

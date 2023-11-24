@@ -8,18 +8,7 @@ mod error;
 mod opcode;
 mod parser;
 use assembler::Assembler;
-use parser::parse_from_file;
 use parser::Instruction;
-
-#[cfg(debug_assertions)]
-pub fn dbg(args: std::fmt::Arguments) {
-    eprintln!("{}", args);
-}
-
-#[cfg(not(debug_assertions))]
-pub fn dbg(msg: &str) {
-    ()
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -49,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run(sorce_file: &File, output_file: File) -> Result<(), Box<dyn std::error::Error>> {
-    let mut instructions = parse_from_file(sorce_file)?;
+    let instructions = parser::parse_from_file(sorce_file)?;
     // print insts for debug
     for inst in &instructions {
         eprintln!(

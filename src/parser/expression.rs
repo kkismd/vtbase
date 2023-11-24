@@ -35,7 +35,6 @@ pub enum Expr {
     DecimalNum(u16),
     ByteNum(u8),
     WordNum(u16),
-    Immediate(Box<Expr>),
     StringLiteral(String),
     Identifier(String),
     BinOp(Box<Expr>, Operator, Box<Expr>),
@@ -65,7 +64,6 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
         parse_bin_op,
         parse_decimal,
         parse_hex,
-        parse_immediate,
         parse_sysop,
         parse_identifier,
         parse_parenthesized,
@@ -77,7 +75,6 @@ fn parse_term(input: &str) -> IResult<&str, Expr> {
     alt((
         parse_decimal,
         parse_hex,
-        parse_immediate,
         parse_sysop,
         parse_identifier,
         parse_parenthesized,
@@ -125,13 +122,6 @@ fn parse_hex(input: &str) -> IResult<&str, Expr> {
     }
 }
 
-fn parse_immediate(input: &str) -> IResult<&str, Expr> {
-    map_res(
-        preceded(tag("#"), nom::branch::alt((parse_hex, parse_decimal))),
-        |expr: Expr| -> Result<Expr, ParseIntError> { Ok(Expr::Immediate(Box::new(expr))) },
-    )(input)
-}
-
 fn parse_identifier(input: &str) -> IResult<&str, Expr> {
     map(alphanumeric1, |id_str: &str| {
         Expr::Identifier(id_str.to_string())
@@ -147,13 +137,13 @@ fn parse_bin_op(input: &str) -> IResult<&str, Expr> {
 #[test]
 fn test_parse_binop() {
     assert_eq!(
-        parse_expr("A>#$A"),
+        parse_expr("A>$A"),
         Ok((
             "",
             Expr::BinOp(
                 Box::new(Expr::Identifier("A".to_string())),
                 Operator::Greater,
-                Box::new(Expr::Immediate(Box::new(Expr::ByteNum(10))))
+                Box::new(Expr::ByteNum(10))
             )
         ))
     );
@@ -166,7 +156,7 @@ fn parse_parenthesized(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        one_of("-<>=/+_#!^"),
+        one_of("-<>=/+_#!^:;*@?"),
         |c: char| -> Result<Expr, ParseIntError> { Ok(Expr::SystemOperator(c)) },
     )(input)
 }

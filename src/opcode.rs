@@ -1,7 +1,6 @@
 use std::vec;
 
 use crate::error::AssemblyError;
-use crate::parser::expression::Expr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mnemonic {
@@ -128,16 +127,8 @@ pub enum OperandValue {
 }
 
 impl OperandValue {
-    pub fn none() -> Self {
-        Self::None
-    }
-
     pub fn byte(value: u8) -> Self {
         Self::Byte(value)
-    }
-
-    pub fn word(value: u16) -> Self {
-        Self::Word(value)
     }
 
     pub fn unresolved_label(name: &str) -> Self {

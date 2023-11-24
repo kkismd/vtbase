@@ -1,4 +1,5 @@
 use crate::error::AssemblyError;
+
 use regex::Captures;
 use regex::Regex;
 use std::fs::File;
@@ -70,11 +71,13 @@ fn parse_line(line: String, line_num: usize) -> Result<Instruction, AssemblyErro
 
     let body = cap.name("body").map_or("", |m| m.as_str());
     let tokens = tokenize(body);
+    let statements =
+        parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, &e.message()))?;
     Ok(Instruction::new(
         line_num,
         0,
         cap.name("label").map(|m| m.as_str()).map(String::from),
-        parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, &e.message()))?,
+        statements,
         Vec::new(),
     ))
 }
@@ -96,7 +99,7 @@ fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, AssemblyError
 }
 
 fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
-    let assignment_pattern = Regex::new(r"^(?P<command>\S)=(?P<operand>.+)$").unwrap();
+    let assignment_pattern = Regex::new(r"^(?P<command>[^=]+)=(?P<operand>.+)$").unwrap();
     let single_pattern = Regex::new(r"(?P<command>\S)").unwrap();
     let cap = assignment_pattern
         .captures(&token)
@@ -105,16 +108,52 @@ fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
     let command = cap
         .name("command")
         .map(|m| m.as_str())
-        .ok_or(AssemblyError::token(token))?;
+        .ok_or(AssemblyError::token(token))
+        .and_then(|s| Expr::parse(s))?;
+
     let operand = cap.name("operand").map(|m| m.as_str()).unwrap_or("");
     let expression = Expr::parse(operand)?;
 
-    let statement = Statement::new(command.to_string(), expression);
+    let statement = Statement {
+        command,
+        expression,
+    };
     Ok(statement)
+}
+#[test]
+fn test_parse_token() {
+    let statement = parse_token("A=1").unwrap();
+    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+    assert_eq!(statement.expression, Expr::DecimalNum(1));
+
+    let statement = parse_token("A=$10").unwrap();
+    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+    assert_eq!(statement.expression, Expr::ByteNum(0x10));
+
+    let statement = parse_token("A=$10+X").unwrap();
+    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+    assert_eq!(
+        statement.expression,
+        Expr::BinOp(
+            Box::new(Expr::ByteNum(0x10)),
+            expression::Operator::Add,
+            Box::new(Expr::Identifier("X".to_string()))
+        )
+    );
+    let statement = parse_token(":=$80FF").unwrap();
+    assert_eq!(statement.command, Expr::SystemOperator(':'));
+    assert_eq!(statement.expression, Expr::WordNum(0x80FF));
+
+    let statement = parse_token("($10)=A").unwrap();
+    assert_eq!(
+        statement.command,
+        Expr::Parenthesized(Box::new(Expr::ByteNum(0x10)))
+    );
+    assert_eq!(statement.expression, Expr::Identifier("A".to_string()));
 }
 
 fn tokenize(text: &str) -> Vec<String> {
-    let re = Regex::new(r#"\S=("[^"]*"|\S)+|\S"#).unwrap();
+    let re = Regex::new(r#"("[^"]*"|\S)+"#).unwrap();
     let mut tokens = Vec::new();
 
     for cap in re.captures_iter(text) {
@@ -125,12 +164,13 @@ fn tokenize(text: &str) -> Vec<String> {
 }
 #[test]
 fn test_tokenize() {
-    let tokens = tokenize("@ A=1 B=2 C=\"hello world\"");
-    assert_eq!(tokens.len(), 4);
+    let tokens = tokenize("@ A=1 B=2 C=\"hello world\",0 ($00)=A");
+    assert_eq!(tokens.len(), 5);
     assert_eq!(tokens[0], "@");
     assert_eq!(tokens[1], "A=1");
     assert_eq!(tokens[2], "B=2");
-    assert_eq!(tokens[3], "C=\"hello world\"");
+    assert_eq!(tokens[3], "C=\"hello world\",0");
+    assert_eq!(tokens[4], "($00)=A");
 }
 
 fn remove_after_quote(s: &str) -> String {
