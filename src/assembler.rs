@@ -182,9 +182,15 @@ impl Assembler {
             }
             Ok(())
         } else if command == "?" {
-            if let Expr::StringLiteral(ref s) = statement.expression {
-                let len = s.len();
-                self.pc += len as u16;
+            let values = statement.expression.traverse_comma();
+            for value in values {
+                match value {
+                    Expr::ByteNum(_) => self.pc += 1,
+                    Expr::WordNum(_) => self.pc += 2,
+                    Expr::DecimalNum(_) => self.pc += 1,
+                    Expr::StringLiteral(ref s) => self.pc += s.len() as u16,
+                    _ => (),
+                }
             }
             Ok(())
         } else {
@@ -199,16 +205,24 @@ impl Assembler {
             let values = expression.traverse_comma();
             for value in values {
                 match value {
-                    Expr::ByteNum(num) => objects.push(num),
+                    Expr::DecimalNum(num) => {
+                        objects.push(num as u8);
+                        self.pc += 1;
+                    }
+                    Expr::ByteNum(num) => {
+                        objects.push(num);
+                        self.pc += 1;
+                    }
                     Expr::WordNum(num) => {
                         objects.push((num & 0xff) as u8);
                         objects.push((num >> 8) as u8);
+                        self.pc += 2;
                     }
-                    Expr::DecimalNum(num) => objects.push(num as u8),
                     Expr::StringLiteral(ref s) => {
                         for c in s.chars() {
                             objects.push(c as u8);
                         }
+                        self.pc += s.len() as u16;
                     }
                     _ => {
                         dbg!(statement);
