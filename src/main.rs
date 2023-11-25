@@ -22,6 +22,8 @@ struct Opt {
     /// Use Intel HEX format
     #[structopt(long)]
     ihex: bool,
+    #[structopt(long)]
+    c64: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,15 +64,19 @@ fn run(sorce_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn std
     if opt.ihex {
         output_ihex(output_file, instructions, assembler.origin)
     } else {
-        output_bin(output_file, instructions)
+        output_bin(output_file, instructions, opt.c64)
     }
 }
 
 fn output_bin(
     output_file: File,
     instructions: Vec<Instruction>,
+    c64: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = BufWriter::new(output_file);
+    if c64 {
+        writer.write(&vec![0x01, 0x08])?;
+    }
     for instruction in instructions {
         for object_code in instruction.object_codes {
             writer
