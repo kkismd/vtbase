@@ -163,7 +163,7 @@ fn parse_operator(input: &str) -> IResult<&str, Operator> {
         map(tag(">"), |_| Operator::Greater),
         map(tag("<"), |_| Operator::Less),
         map(tag("="), |_| Operator::Equal),
-        map(tag("~"), |_| Operator::NotEqual),
+        map(tag("\\"), |_| Operator::NotEqual),
     ))(input)
 }
 
