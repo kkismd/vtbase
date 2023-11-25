@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::assembler::LabelEntry;
+use crate::assembler::{Address, LabelEntry};
 use crate::error::AssemblyError;
 use crate::opcode::{
     AddressingMode, AssemblyInstruction, Mnemonic, Mode, OpcodeTable, OperandValue,
@@ -12,44 +12,60 @@ use super::expression::Operator;
 // instruction in a line of source code
 #[derive(Debug, Clone)]
 pub struct Statement {
-    pub(crate) command: String,
-    pub(crate) expression: Expr,
+    pub command: Expr,
+    pub expression: Expr,
 }
 
 impl Statement {
-    pub fn new(command: String, expression: Expr) -> Self {
+    pub fn new(command: &str, expression: Expr) -> Self {
+        let command = Expr::Identifier(command.to_string());
         Self {
             command,
             expression,
         }
     }
 
+    pub fn command(&self) -> Result<String, AssemblyError> {
+        match &self.command {
+            Expr::Identifier(command) => Ok(command.clone()),
+            Expr::SystemOperator(symbol) => Ok(symbol.to_string()),
+            Expr::Parenthesized(_) => Ok("(#<Expr>)".to_string()),
+            _ => Err(AssemblyError::syntax("must be identifier")),
+        }
+    }
+
     pub fn is_pseudo(&self) -> bool {
-        let pseudo_commands = vec!["*", ":", "?"];
-        pseudo_commands.iter().any(|&pc| pc == self.command)
+        if let Ok(command) = self.command() {
+            return command == "*" || command == ":" || command == "?";
+        } else {
+            false
+        }
     }
 
     pub fn validate_pseudo_command(&self) -> Result<(), AssemblyError> {
-        if self.command == "*" || self.command == ":" {
+        let command = self.command()?;
+        if command == "*" || command == ":" {
             match self.expression {
                 Expr::WordNum(_) => Ok(()),
-                _ => Err(AssemblyError::syntax("operand must be 16bit address")),
+                Expr::ByteNum(_) => Ok(()),
+                _ => Err(AssemblyError::syntax("operand must be address")),
             }
-        } else if self.command == "?" {
+        } else if command == "?" {
             match self.expression {
                 Expr::StringLiteral(_) => Ok(()),
+                Expr::BinOp(_, Operator::Comma, _) => Ok(()),
                 _ => Err(AssemblyError::syntax("operand must be string")),
             }
         } else {
-            let details = format!("unknown command: <{}>", self.command);
+            let details = format!("unknown command: <{}>", command);
             Err(AssemblyError::syntax(&details))
         }
     }
 
     pub fn is_macro(&self) -> bool {
-        match self.command.as_str() {
-            ";" => self.check_macro_if_statement(),
-            "@" => true,
+        match self.command {
+            Expr::SystemOperator('@') => true,
+            Expr::SystemOperator(';') => self.check_macro_if_statement(),
             _ => false,
         }
     }
@@ -71,46 +87,45 @@ impl Statement {
         false
     }
 
-    /**
-     * decode command and expression into mnemonic and addressing mode
-     * @return (Mnemonic, Mode)
-     */
-    pub fn decode(&self) -> Result<AssemblyInstruction, AssemblyError> {
-        match self.command.as_str() {
-            "X" => self.decode_x(),
-            "Y" => self.decode_y(),
-            "A" => self.decode_a(),
-            "T" => self.decode_t(),
-            "C" => self.decode_c(),
-            "!" => self.decode_call(),
-            "#" => self.decode_goto(),
-            ";" => self.decode_if(),
-            _ => {
-                dbg!(self);
-                todo!()
-            }
+    pub fn decode(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let command = self.command()?;
+        match command.as_str() {
+            "X" => self.decode_x(labels),
+            "Y" => self.decode_y(labels),
+            "A" => self.decode_a(labels),
+            "T" => self.decode_t(labels),
+            "C" => self.decode_c(labels),
+            "!" => self.decode_call(labels),
+            "#" => self.decode_goto(labels),
+            ";" => self.decode_if(labels),
+            _ => self.decode_other(labels),
         }
     }
 
-    fn decode_x(&self) -> Result<AssemblyInstruction, AssemblyError> {
-        if let Expr::Immediate(expr) = &self.expression {
-            if let Expr::ByteNum(num) = **expr {
-                return Ok(AssemblyInstruction::new(
-                    Mnemonic::LDX,
-                    Mode::Immediate,
-                    OperandValue::byte(num),
-                ));
+    fn decode_x(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        if let Expr::ByteNum(num) = *expr {
+            return Ok(AssemblyInstruction::new(
+                Mnemonic::LDX,
+                Mode::Immediate,
+                OperandValue::byte(num),
+            ));
+        }
+        if let Expr::DecimalNum(num) = *expr {
+            if num > 255 {
+                return Err(AssemblyError::syntax("operand must be 8bit"));
             }
-            if let Expr::DecimalNum(num) = **expr {
-                if num > 255 {
-                    return Err(AssemblyError::syntax("operand must be 8bit"));
-                }
-                return Ok(AssemblyInstruction::new(
-                    Mnemonic::LDX,
-                    Mode::Immediate,
-                    OperandValue::Byte(num as u8),
-                ));
-            }
+            return Ok(AssemblyInstruction::new(
+                Mnemonic::LDX,
+                Mode::Immediate,
+                OperandValue::Byte(num as u8),
+            ));
         }
         if let Expr::ByteNum(num) = self.expression {
             return self.ok_byte(Mnemonic::LDX, Mode::ZeroPage, num);
@@ -140,17 +155,19 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_y(&self) -> Result<AssemblyInstruction, AssemblyError> {
-        if let Expr::Immediate(expr) = &self.expression {
-            if let Expr::ByteNum(num) = **expr {
-                return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num);
+    fn decode_y(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        if let Expr::ByteNum(num) = *expr {
+            return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num);
+        }
+        if let Expr::DecimalNum(num) = *expr {
+            if num > 255 {
+                return Err(AssemblyError::syntax("operand must be 8bit"));
             }
-            if let Expr::DecimalNum(num) = **expr {
-                if num > 255 {
-                    return Err(AssemblyError::syntax("operand must be 8bit"));
-                }
-                return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num as u8);
-            }
+            return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num as u8);
         }
         if let Expr::ByteNum(num) = self.expression {
             return self.ok_byte(Mnemonic::LDY, Mode::ZeroPage, num);
@@ -180,16 +197,20 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_a(&self) -> Result<AssemblyInstruction, AssemblyError> {
-        if let Some(num) = self.match_immediate() {
+    fn decode_a(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        if let Expr::DecimalNum(num) = *expr {
             if num > 255 {
                 return Err(AssemblyError::syntax("operand must be 8bit"));
             } else {
                 return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num as u8);
             }
         }
-        if let Expr::ByteNum(num) = self.expression {
-            return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, num);
+        if let Expr::ByteNum(num) = *expr {
+            return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num);
         }
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref name) = **left {
@@ -202,30 +223,28 @@ impl Statement {
                         }
                     }
                 }
-                // A=A-#$48
+                // A=A-$48
                 if name == "A" && *operator == Operator::Sub {
-                    if let Expr::Immediate(ref expr) = **right {
-                        if let Expr::DecimalNum(num) = **expr {
-                            if num < 256 {
-                                return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num as u8);
-                            }
-                        }
-                        if let Expr::ByteNum(num) = **expr {
-                            return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num);
+                    let expr = right;
+                    if let Expr::DecimalNum(num) = **expr {
+                        if num < 256 {
+                            return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num as u8);
                         }
                     }
+                    if let Expr::ByteNum(num) = **expr {
+                        return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num);
+                    }
                 }
-                // A=A+#$48
+                // A=A+$48
                 if name == "A" && *operator == Operator::Add {
-                    if let Expr::Immediate(ref expr) = **right {
-                        if let Expr::DecimalNum(num) = **expr {
-                            if num < 256 {
-                                return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num as u8);
-                            }
+                    let expr = right;
+                    if let Expr::DecimalNum(num) = **expr {
+                        if num < 256 {
+                            return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num as u8);
                         }
-                        if let Expr::ByteNum(num) = **expr {
-                            return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num);
-                        }
+                    }
+                    if let Expr::ByteNum(num) = **expr {
+                        return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num);
                     }
                 }
             }
@@ -235,41 +254,57 @@ impl Statement {
                 return self.ok_none(Mnemonic::TXA, Mode::Implied);
             } else if name == "Y" {
                 return self.ok_none(Mnemonic::TYA, Mode::Implied);
-            } else {
-                return self.ok_unresolved_label(Mnemonic::LDA, Mode::Absolute, &name);
+            }
+        }
+        // A=(label) => LDA label
+        if let Expr::Parenthesized(expr) = &self.expression {
+            if let Expr::Identifier(ref name) = **expr {
+                let entry = labels
+                    .get(name)
+                    .ok_or(AssemblyError::syntax("unknown label"))?;
+                match entry.address {
+                    Address::Full(addr) => {
+                        return self.ok_word(Mnemonic::LDA, Mode::Absolute, addr);
+                    }
+                    Address::ZeroPage(addr) => {
+                        return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, addr);
+                    }
+                }
             }
         }
         self.decode_error()
     }
 
-    fn decode_t(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_t(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref reg) = **left {
                 if *operator == Operator::Sub {
-                    if let Expr::Immediate(ref expr) = **right {
-                        if let Expr::DecimalNum(num) = **expr {
-                            if num < 256 {
-                                if reg == "A" {
-                                    return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num as u8);
-                                }
-                                if reg == "X" {
-                                    return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num as u8);
-                                }
-                                if reg == "Y" {
-                                    return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num as u8);
-                                }
-                            }
-                        }
-                        if let Expr::ByteNum(num) = **expr {
+                    let expr = right;
+                    if let Expr::DecimalNum(num) = **expr {
+                        if num < 256 {
                             if reg == "A" {
-                                return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num);
+                                return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num as u8);
                             }
                             if reg == "X" {
-                                return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num);
+                                return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num as u8);
                             }
                             if reg == "Y" {
-                                return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num);
+                                return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num as u8);
                             }
+                        }
+                    }
+                    if let Expr::ByteNum(num) = **expr {
+                        if reg == "A" {
+                            return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num);
+                        }
+                        if reg == "X" {
+                            return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num);
+                        }
+                        if reg == "Y" {
+                            return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num);
                         }
                     }
                 }
@@ -278,7 +313,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_c(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_c(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::DecimalNum(num) = self.expression {
             if num == 1 {
                 return self.ok_none(Mnemonic::SEC, Mode::Implied);
@@ -290,7 +328,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_call(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_call(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::Identifier(name) = &self.expression {
             return self.ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name);
         }
@@ -300,7 +341,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_goto(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_goto(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         match &self.expression {
             Expr::WordNum(num) => {
                 return self.ok_word(Mnemonic::JMP, Mode::Absolute, *num);
@@ -313,7 +357,10 @@ impl Statement {
         }
     }
 
-    fn decode_if(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_if(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         // ;=/,$12fd (IF NOT EQUAL THEN GOTO $12FD)
         if let Expr::BinOp(expr_left, Operator::Comma, expr_right) = &self.expression {
             if let Expr::SystemOperator(symbol) = **expr_left {
@@ -356,16 +403,36 @@ impl Statement {
         self.decode_error()
     }
 
-    fn match_immediate(&self) -> Option<u16> {
-        if let Expr::Immediate(expr) = &self.expression {
-            if let Expr::ByteNum(num) = **expr {
-                return Some(num as u16);
-            }
-            if let Expr::DecimalNum(num) = **expr {
-                return Some(num);
+    fn decode_other(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        if let Expr::Parenthesized(expr) = &self.command {
+            match **expr {
+                Expr::Identifier(ref name) => {
+                    let entry = labels
+                        .get(name)
+                        .ok_or(AssemblyError::syntax("unknown label"))?;
+                    match entry.address {
+                        Address::Full(addr) => {
+                            return self.ok_word(Mnemonic::STA, Mode::Absolute, addr);
+                        }
+                        Address::ZeroPage(addr) => {
+                            return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, addr);
+                        }
+                    }
+                }
+                Expr::WordNum(num) => {
+                    return self.ok_word(Mnemonic::STA, Mode::Absolute, num);
+                }
+                Expr::ByteNum(num) => {
+                    return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, num);
+                }
+                _ => return self.decode_error(),
             }
         }
-        None
+        dbg!(self);
+        todo!()
     }
 
     fn ok_byte(
@@ -443,15 +510,16 @@ impl Statement {
         &self,
         opcode_table: &OpcodeTable,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
-        let assembly_instruction = self.decode()?;
+        let assembly_instruction = self.decode(labels)?;
         // find opcode from mnemonic and mode
         let opcode = opcode_table.find(
             &assembly_instruction.mnemonic,
             &assembly_instruction.addressing_mode,
         )?;
-        let operand = self.operand_bytes(&assembly_instruction, labels, pc)?;
+        let operand = self.operand_bytes(&assembly_instruction, labels, current_label, pc)?;
 
         let mut bytes = vec![];
         bytes.push(opcode.opcode);
@@ -463,15 +531,20 @@ impl Statement {
         &self,
         assembly_instruction: &AssemblyInstruction,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
         let operand = match assembly_instruction.value {
             OperandValue::None => vec![],
             OperandValue::Byte(value) => vec![value],
             OperandValue::Word(value) => vec![value as u8, (value >> 8) as u8],
-            OperandValue::UnresolvedLabel(ref name) => {
-                self.resolve_label(&name, &assembly_instruction.addressing_mode, &labels, pc)?
-            }
+            OperandValue::UnresolvedLabel(ref name) => self.resolve_label(
+                &name,
+                &assembly_instruction.addressing_mode,
+                &labels,
+                current_label,
+                pc,
+            )?,
             OperandValue::UnresolvedRelative(addr) => Self::absolute_to_relative(addr, pc),
         };
         Ok(operand)
@@ -482,17 +555,39 @@ impl Statement {
         name: &str,
         mode: &AddressingMode,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
-        if let Some(entry) = labels.get(name) {
-            let absolute_address = entry.address;
-            if mode == &AddressingMode::Relative {
-                return Ok(Self::absolute_to_relative(absolute_address, pc + 2));
-            } else {
-                return Ok(vec![absolute_address as u8, (absolute_address >> 8) as u8]);
+        let name = Self::full_qualify_name(name, current_label);
+        if let Some(entry) = labels.get(&name) {
+            if let Address::Full(absolute_address) = entry.address {
+                if mode == &AddressingMode::Relative {
+                    return Ok(Self::absolute_to_relative(absolute_address, pc + 2));
+                } else {
+                    return Ok(vec![absolute_address as u8, (absolute_address >> 8) as u8]);
+                }
             }
+            if let Address::ZeroPage(address) = entry.address {
+                dbg!(address);
+                dbg!(mode);
+                match mode {
+                    AddressingMode::ZeroPage
+                    | AddressingMode::ZeroPageX
+                    | AddressingMode::ZeroPageY => {
+                        return Ok(vec![address as u8]);
+                    }
+                    _ => (),
+                }
+            }
+        }
+        Err(AssemblyError::syntax(&format!("unknown label: {}", name)))
+    }
+
+    fn full_qualify_name(name: &str, current_label: &str) -> String {
+        if name.starts_with('.') {
+            format!("{}{}", current_label, &name)
         } else {
-            Err(AssemblyError::syntax(&format!("unknown label: {}", name)))
+            name.to_string()
         }
     }
 

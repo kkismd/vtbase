@@ -1,7 +1,6 @@
 use std::vec;
 
 use crate::error::AssemblyError;
-use crate::parser::expression::Expr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mnemonic {
@@ -102,6 +101,7 @@ impl AddressingMode {
 }
 
 // アセンブリ命令を表現する構造体
+#[derive(Debug)]
 pub struct AssemblyInstruction {
     pub mnemonic: Mnemonic,
     pub addressing_mode: AddressingMode,
@@ -119,6 +119,7 @@ impl AssemblyInstruction {
 }
 
 // オペランドの値を表現する列挙型
+#[derive(Debug)]
 pub enum OperandValue {
     None,                    // 値なし
     Byte(u8),                // 8ビット値
@@ -128,16 +129,8 @@ pub enum OperandValue {
 }
 
 impl OperandValue {
-    pub fn none() -> Self {
-        Self::None
-    }
-
     pub fn byte(value: u8) -> Self {
         Self::Byte(value)
-    }
-
-    pub fn word(value: u16) -> Self {
-        Self::Word(value)
     }
 
     pub fn unresolved_label(name: &str) -> Self {

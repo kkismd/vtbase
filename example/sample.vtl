@@ -1,13 +1,54 @@
-CHROUT  :=$ffd2      ' EQL $FFD2
-        *=$080e      ' ORG $080E
+' PROGRAM Hello World 
+'   for VTBase (Very Tiny BASE assembler)
 
-        X=#0         ' LDX #0
-loop    A=hello+X    ' LDA hello,X
-        !=CHROUT     ' JSR CHROUT
-        X=X+1        ' INX
-        T=X-#$0d     ' CPX #$0D
-        ;=/,loop     ' BNE loop
+' Monitor subroutines
+CONINIT :=$FD1B
+CONOUT  :=$FD39
+UNIMON  :=$F600
 
-stop    #=!          ' RTS
+' Zero page variables
+TMP1    :=$10
 
-hello   ?="HELLO, WORLD."
+        *=$D000                 '       ORG $D000
+
+        'initialize
+        !=CONINIT               '       JSR CONINIT
+        X=0                     '       LDX #0
+
+loop    A=hello+X               '       LDA hello,X
+        ;==,.skip               '       BEQ .skip
+        !=CONOUT                '       JSR CONOUT
+        X=+                     '       INX
+        #=loop
+.skip   !=newline
+
+
+        Y=0                     '       LDY #0
+        @                       ' .macro1_do
+        A=Y                     '       TYA
+        (TMP1)=A                '       STA TMP1
+        !=byte2char             '       JSR byte2char
+        Y=Y+1                   '       INY
+        @=Y<20                  '       CPY #20
+                                '       BCS .macro1_do_next
+                                '       JMP .macro1_do
+                                ' .macro1_do_next
+        !=newline
+
+stop    #=UNIMON                '       JMP UNIMON
+
+byte2char
+        A=(TMP1)                '       LDA TMP1
+        ;=A>$A C=0 A=A+7
+        A=A+$30
+        !=CONOUT                '       JSR CONOUT
+        #=!                     '       RTS
+
+newline
+        A=$0d
+        !=CONOUT
+        A=$0A
+        !=CONOUT
+        #=!
+
+hello   ?="HELLO, WORLD.",0       '       !text "HELLO, WORLD."

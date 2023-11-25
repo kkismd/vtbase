@@ -37,10 +37,6 @@ impl AssemblyError {
         Self::SyntaxError(format!("invalid expression: {}", expr))
     }
 
-    pub fn label_not_found(name: &str) -> Self {
-        Self::LabelError(format!("label not found: {}", name))
-    }
-
     pub fn label_used(line_num: usize, name: &str) -> Self {
         Self::LabelError(format!("line: {line_num} label <{name}> alreadsy used"))
     }

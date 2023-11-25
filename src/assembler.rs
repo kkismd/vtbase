@@ -4,7 +4,6 @@ use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
-// assembler.rs
 pub struct Assembler {
     pub origin: u16,
     pub pc: u16,
@@ -17,7 +16,13 @@ pub struct Assembler {
 pub struct LabelEntry {
     pub name: String,
     pub line: usize,
-    pub address: u16,
+    pub address: Address,
+}
+
+#[derive(Debug)]
+pub enum Address {
+    Full(u16),
+    ZeroPage(u8),
 }
 
 impl Assembler {
@@ -31,15 +36,15 @@ impl Assembler {
         }
     }
 
-    pub fn assemble(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+    pub fn assemble(&mut self, instructions: &mut Vec<Instruction>) -> Result<u16, AssemblyError> {
         self.assemble_pass1(instructions)?;
-        self.assemble_pass2(instructions)?;
-        Ok(())
+        let obj_size = self.assemble_pass2(instructions)?;
+        Ok(obj_size)
     }
 
     fn assemble_pass1(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
-            eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction);
+            // eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction);
             instruction.address = self.pc;
             self.entry_label(instruction)?;
             for statement in &instruction.statements {
@@ -48,7 +53,7 @@ impl Assembler {
                     self.pseudo_command_pass1(instruction, statement)?;
                     continue;
                 }
-                let assymbly_instruction = statement.decode()?;
+                let assymbly_instruction = statement.decode(&self.labels)?;
                 let len = assymbly_instruction.addressing_mode.length();
                 self.pc += len as u16;
             }
@@ -56,23 +61,44 @@ impl Assembler {
         Ok(())
     }
 
-    fn assemble_pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+    fn assemble_pass2(
+        &mut self,
+        instructions: &mut Vec<Instruction>,
+    ) -> Result<u16, AssemblyError> {
+        self.current_label = String::new();
+        let mut objects_size = 0;
         for instruction in instructions {
             let mut pc = instruction.address;
+            self.track_global_label(instruction);
             for statement in &instruction.statements {
                 let objects;
                 if statement.is_pseudo() {
                     objects = self.pseudo_command_pass2(statement)?;
                 } else {
-                    objects = statement.compile(&self.opcode_table, &self.labels, pc)?;
+                    objects = statement.compile(
+                        &self.opcode_table,
+                        &self.labels,
+                        &self.current_label,
+                        pc,
+                    )?;
                 }
-                let dump = Self::dump_objects(&objects);
-                eprintln!("{}\t{:?}", dump, statement);
+                // let dump = Self::dump_objects(&objects);
+                // eprintln!("{}\t{:?}", dump, statement);
                 pc += objects.len() as u16;
+                objects_size += objects.len() as u16;
                 instruction.object_codes.extend(objects);
             }
         }
-        Ok(())
+        Ok(objects_size)
+    }
+
+    fn track_global_label(&mut self, instruction: &mut Instruction) {
+        if let Some(label) = &instruction.label {
+            let first_char = label.chars().next().unwrap();
+            if first_char != '.' && first_char != '#' {
+                self.current_label = label.to_string();
+            }
+        }
     }
 
     /**
@@ -99,8 +125,7 @@ impl Assembler {
                 self.current_label = label.to_string();
             }
             if let Some(entry) = self.labels.get_mut(&label) {
-                entry.address = self.pc;
-                eprintln!("label_entry = {:?}", entry);
+                entry.address = Address::Full(self.pc);
             }
         }
         Ok(())
@@ -128,14 +153,15 @@ impl Assembler {
         instruction: &Instruction,
         statement: &Statement,
     ) -> Result<(), AssemblyError> {
-        if statement.command == "*" {
+        let command = statement.command()?;
+        if command == "*" {
             // set stgart address
             if let Expr::WordNum(address) = statement.expression {
                 self.origin = address;
                 self.pc = address;
             }
             Ok(())
-        } else if statement.command == ":" {
+        } else if command == ":" {
             // label def
             let label_name = instruction
                 .label
@@ -148,11 +174,14 @@ impl Assembler {
                 .ok_or(AssemblyError::program("label not found"))?;
             // set address to entry
             if let Expr::WordNum(address) = statement.expression {
-                label_entry.address = address;
-                eprintln!("label def: {:?}", label_entry);
+                label_entry.address = Address::Full(address);
+            } else if let Expr::ByteNum(address) = statement.expression {
+                label_entry.address = Address::ZeroPage(address as u8);
+            } else {
+                return Err(AssemblyError::program("invalid label def"));
             }
             Ok(())
-        } else if statement.command == "?" {
+        } else if command == "?" {
             if let Expr::StringLiteral(ref s) = statement.expression {
                 let len = s.len();
                 self.pc += len as u16;
@@ -163,15 +192,31 @@ impl Assembler {
         }
     }
     fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
-        if statement.command == "?" {
-            if let Expr::StringLiteral(ref s) = statement.expression {
-                let mut objects = Vec::new();
-                for c in s.chars() {
-                    objects.push(c as u8);
+        let command = statement.command()?;
+        let expression = &statement.expression;
+        if command == "?" {
+            let mut objects = Vec::new();
+            let values = expression.traverse_comma();
+            for value in values {
+                match value {
+                    Expr::ByteNum(num) => objects.push(num),
+                    Expr::WordNum(num) => {
+                        objects.push((num & 0xff) as u8);
+                        objects.push((num >> 8) as u8);
+                    }
+                    Expr::DecimalNum(num) => objects.push(num as u8),
+                    Expr::StringLiteral(ref s) => {
+                        for c in s.chars() {
+                            objects.push(c as u8);
+                        }
+                    }
+                    _ => {
+                        dbg!(statement);
+                        return Err(AssemblyError::program("invalid pseudo command"));
+                    }
                 }
-                return Ok(objects);
             }
-            return Err(AssemblyError::program("invalid pseudo command"));
+            return Ok(objects);
         }
         return Ok(Vec::new());
     }
@@ -180,7 +225,7 @@ impl Assembler {
         let entry = LabelEntry {
             name: name.to_string(),
             line: line,
-            address: address,
+            address: Address::Full(address),
         };
         self.labels.insert(name.to_string(), entry);
     }
