@@ -366,7 +366,7 @@ impl Statement {
             if let Expr::SystemOperator(symbol) = **expr_left {
                 match **expr_right {
                     Expr::WordNum(addr) => match symbol {
-                        '/' | '~' | '!' => {
+                        '\\' => {
                             return self.ok_unresolved_relative(Mnemonic::BNE, Mode::Relative, addr)
                         }
                         '=' => {
