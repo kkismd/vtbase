@@ -29,6 +29,7 @@ impl Statement {
         match &self.command {
             Expr::Identifier(command) => Ok(command.clone()),
             Expr::SystemOperator(symbol) => Ok(symbol.to_string()),
+            Expr::Parenthesized(_) => Ok("(#<Expr>)".to_string()),
             _ => Err(AssemblyError::syntax("must be identifier")),
         }
     }
@@ -46,11 +47,13 @@ impl Statement {
         if command == "*" || command == ":" {
             match self.expression {
                 Expr::WordNum(_) => Ok(()),
-                _ => Err(AssemblyError::syntax("operand must be 16bit address")),
+                Expr::ByteNum(_) => Ok(()),
+                _ => Err(AssemblyError::syntax("operand must be address")),
             }
         } else if command == "?" {
             match self.expression {
                 Expr::StringLiteral(_) => Ok(()),
+                Expr::BinOp(_, Operator::Comma, _) => Ok(()),
                 _ => Err(AssemblyError::syntax("operand must be string")),
             }
         } else {
@@ -60,14 +63,10 @@ impl Statement {
     }
 
     pub fn is_macro(&self) -> bool {
-        if let Expr::Identifier(command) = &self.command {
-            match command.as_str() {
-                ";" => self.check_macro_if_statement(),
-                "@" => true,
-                _ => false,
-            }
-        } else {
-            false
+        match self.command {
+            Expr::SystemOperator('@') => true,
+            Expr::SystemOperator(';') => self.check_macro_if_statement(),
+            _ => false,
         }
     }
 
@@ -88,29 +87,28 @@ impl Statement {
         false
     }
 
-    /**
-     * decode command and expression into mnemonic and addressing mode
-     * @return (Mnemonic, Mode)
-     */
-    pub fn decode(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    pub fn decode(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         let command = self.command()?;
         match command.as_str() {
-            "X" => self.decode_x(),
-            "Y" => self.decode_y(),
-            "A" => self.decode_a(),
-            "T" => self.decode_t(),
-            "C" => self.decode_c(),
-            "!" => self.decode_call(),
-            "#" => self.decode_goto(),
-            ";" => self.decode_if(),
-            _ => {
-                dbg!(self);
-                todo!()
-            }
+            "X" => self.decode_x(labels),
+            "Y" => self.decode_y(labels),
+            "A" => self.decode_a(labels),
+            "T" => self.decode_t(labels),
+            "C" => self.decode_c(labels),
+            "!" => self.decode_call(labels),
+            "#" => self.decode_goto(labels),
+            ";" => self.decode_if(labels),
+            _ => self.decode_other(labels),
         }
     }
 
-    fn decode_x(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_x(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         let expr = &self.expression;
         if let Expr::ByteNum(num) = *expr {
             return Ok(AssemblyInstruction::new(
@@ -157,7 +155,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_y(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_y(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         let expr = &self.expression;
         if let Expr::ByteNum(num) = *expr {
             return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num);
@@ -196,7 +197,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_a(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_a(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         let expr = &self.expression;
         if let Expr::DecimalNum(num) = *expr {
             if num > 255 {
@@ -250,14 +254,31 @@ impl Statement {
                 return self.ok_none(Mnemonic::TXA, Mode::Implied);
             } else if name == "Y" {
                 return self.ok_none(Mnemonic::TYA, Mode::Implied);
-            } else {
-                return self.ok_unresolved_label(Mnemonic::LDA, Mode::Absolute, &name);
+            }
+        }
+        // A=(label) => LDA label
+        if let Expr::Parenthesized(expr) = &self.expression {
+            if let Expr::Identifier(ref name) = **expr {
+                let entry = labels
+                    .get(name)
+                    .ok_or(AssemblyError::syntax("unknown label"))?;
+                match entry.address {
+                    Address::Full(addr) => {
+                        return self.ok_word(Mnemonic::LDA, Mode::Absolute, addr);
+                    }
+                    Address::ZeroPage(addr) => {
+                        return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, addr);
+                    }
+                }
             }
         }
         self.decode_error()
     }
 
-    fn decode_t(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_t(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref reg) = **left {
                 if *operator == Operator::Sub {
@@ -292,7 +313,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_c(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_c(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::DecimalNum(num) = self.expression {
             if num == 1 {
                 return self.ok_none(Mnemonic::SEC, Mode::Implied);
@@ -304,7 +328,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_call(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_call(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::Identifier(name) = &self.expression {
             return self.ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name);
         }
@@ -314,7 +341,10 @@ impl Statement {
         self.decode_error()
     }
 
-    fn decode_goto(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_goto(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         match &self.expression {
             Expr::WordNum(num) => {
                 return self.ok_word(Mnemonic::JMP, Mode::Absolute, *num);
@@ -327,7 +357,10 @@ impl Statement {
         }
     }
 
-    fn decode_if(&self) -> Result<AssemblyInstruction, AssemblyError> {
+    fn decode_if(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
         // ;=/,$12fd (IF NOT EQUAL THEN GOTO $12FD)
         if let Expr::BinOp(expr_left, Operator::Comma, expr_right) = &self.expression {
             if let Expr::SystemOperator(symbol) = **expr_left {
@@ -368,6 +401,38 @@ impl Statement {
             }
         }
         self.decode_error()
+    }
+
+    fn decode_other(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        if let Expr::Parenthesized(expr) = &self.command {
+            match **expr {
+                Expr::Identifier(ref name) => {
+                    let entry = labels
+                        .get(name)
+                        .ok_or(AssemblyError::syntax("unknown label"))?;
+                    match entry.address {
+                        Address::Full(addr) => {
+                            return self.ok_word(Mnemonic::STA, Mode::Absolute, addr);
+                        }
+                        Address::ZeroPage(addr) => {
+                            return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, addr);
+                        }
+                    }
+                }
+                Expr::WordNum(num) => {
+                    return self.ok_word(Mnemonic::STA, Mode::Absolute, num);
+                }
+                Expr::ByteNum(num) => {
+                    return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, num);
+                }
+                _ => return self.decode_error(),
+            }
+        }
+        dbg!(self);
+        todo!()
     }
 
     fn ok_byte(
@@ -445,15 +510,16 @@ impl Statement {
         &self,
         opcode_table: &OpcodeTable,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
-        let assembly_instruction = self.decode()?;
+        let assembly_instruction = self.decode(labels)?;
         // find opcode from mnemonic and mode
         let opcode = opcode_table.find(
             &assembly_instruction.mnemonic,
             &assembly_instruction.addressing_mode,
         )?;
-        let operand = self.operand_bytes(&assembly_instruction, labels, pc)?;
+        let operand = self.operand_bytes(&assembly_instruction, labels, current_label, pc)?;
 
         let mut bytes = vec![];
         bytes.push(opcode.opcode);
@@ -465,15 +531,20 @@ impl Statement {
         &self,
         assembly_instruction: &AssemblyInstruction,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
         let operand = match assembly_instruction.value {
             OperandValue::None => vec![],
             OperandValue::Byte(value) => vec![value],
             OperandValue::Word(value) => vec![value as u8, (value >> 8) as u8],
-            OperandValue::UnresolvedLabel(ref name) => {
-                self.resolve_label(&name, &assembly_instruction.addressing_mode, &labels, pc)?
-            }
+            OperandValue::UnresolvedLabel(ref name) => self.resolve_label(
+                &name,
+                &assembly_instruction.addressing_mode,
+                &labels,
+                current_label,
+                pc,
+            )?,
             OperandValue::UnresolvedRelative(addr) => Self::absolute_to_relative(addr, pc),
         };
         Ok(operand)
@@ -484,9 +555,11 @@ impl Statement {
         name: &str,
         mode: &AddressingMode,
         labels: &HashMap<String, LabelEntry>,
+        current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
-        if let Some(entry) = labels.get(name) {
+        let name = Self::full_qualify_name(name, current_label);
+        if let Some(entry) = labels.get(&name) {
             if let Address::Full(absolute_address) = entry.address {
                 if mode == &AddressingMode::Relative {
                     return Ok(Self::absolute_to_relative(absolute_address, pc + 2));
@@ -495,6 +568,8 @@ impl Statement {
                 }
             }
             if let Address::ZeroPage(address) = entry.address {
+                dbg!(address);
+                dbg!(mode);
                 match mode {
                     AddressingMode::ZeroPage
                     | AddressingMode::ZeroPageX
@@ -506,6 +581,14 @@ impl Statement {
             }
         }
         Err(AssemblyError::syntax(&format!("unknown label: {}", name)))
+    }
+
+    fn full_qualify_name(name: &str, current_label: &str) -> String {
+        if name.starts_with('.') {
+            format!("{}{}", current_label, &name)
+        } else {
+            name.to_string()
+        }
     }
 
     fn absolute_to_relative(address: u16, pc: u16) -> Vec<u8> {

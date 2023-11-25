@@ -135,21 +135,21 @@ DO-WHILEマクロ
 
 ## Addressing Mode
 
-| mode                | asm format | vtl format |
-| ------------------- | ---------- | ---------- |
-| Implied             |            |            |
-| Immediate           | #aa        | #aa        |
-| Absolute            | aaaa       | aaaa       |
-| Relative            | aaaa       | aaaa       |
-| Zero Page           | aa         | aa         |
-| Absolute Indexed,X  | aaaa,X     | aaaa+X     |
-| Absolute Indexed,Y  | aaaa,Y     | aaaa+Y     |
-| Zero Page Indexed,X | aa,X       | aa+X       |
-| Zero Page Indexed,Y | aa,Y       | aa+Y       |
-| Indirect Absolute   | (aaaa)     | (aaaa)     |
-| Indexed Indirect    | (aa,X)     | (aa+X)     |
-| Indirect Indexed    | (aa),Y     | (aa)+Y     |
-| Accumulator         | A          | A          |
+| mode                | asm format | vtbase format |
+| ------------------- | ---------- | ------------- |
+| Implied             |            |               |
+| Immediate           | #aa        | aa            |
+| Absolute            | aaaa       | (aaaa)        |
+| Relative            | aaaa       | (aaaa)        |
+| Zero Page           | aa         | (aa)          |
+| Absolute Indexed,X  | aaaa,X     | (aaaa+X)      |
+| Absolute Indexed,Y  | aaaa,Y     | (aaaa+Y)      |
+| Zero Page Indexed,X | aa,X       | (aa+X)        |
+| Zero Page Indexed,Y | aa,Y       | (aa+Y)        |
+| Indirect Absolute   | (aaaa)     | [aaaa]        |
+| Indexed Indirect    | (aa,X)     | [aa+X]        |
+| Indirect Indexed    | (aa),Y     | [aa]+Y        |
+| Accumulator         | A          | A             |
 
 Note:
 * aa = 2 hex digits as $FF

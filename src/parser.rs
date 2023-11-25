@@ -150,6 +150,17 @@ fn test_parse_token() {
         Expr::Parenthesized(Box::new(Expr::ByteNum(0x10)))
     );
     assert_eq!(statement.expression, Expr::Identifier("A".to_string()));
+
+    let statement = parse_token(";==,.skip").unwrap();
+    assert_eq!(statement.command, Expr::SystemOperator(';'));
+    assert_eq!(
+        statement.expression,
+        Expr::BinOp(
+            Box::new(Expr::SystemOperator('=')),
+            expression::Operator::Comma,
+            Box::new(Expr::Identifier(".skip".to_string()))
+        )
+    );
 }
 
 fn tokenize(text: &str) -> Vec<String> {

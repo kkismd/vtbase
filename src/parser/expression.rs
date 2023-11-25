@@ -57,6 +57,18 @@ impl Expr {
             Err(nom::Err::Incomplete(_)) => Err(AssemblyError::expression("imcomplete imput")),
         }
     }
+
+    pub fn traverse_comma(self: &Expr) -> Vec<Expr> {
+        match self {
+            Expr::BinOp(left, Operator::Comma, right) => {
+                let mut result = Vec::new();
+                result.extend(left.traverse_comma());
+                result.extend(right.traverse_comma());
+                result
+            }
+            _ => vec![self.clone()],
+        }
+    }
 }
 
 fn parse_expr(input: &str) -> IResult<&str, Expr> {
@@ -70,6 +82,24 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
         parse_string_literal,
     ))(input)
 }
+#[test]
+fn test_parse_expr() {
+    assert_eq!(
+        parse_expr("A>$A"),
+        Ok((
+            "",
+            Expr::BinOp(
+                Box::new(Expr::Identifier("A".to_string())),
+                Operator::Greater,
+                Box::new(Expr::ByteNum(10))
+            )
+        ))
+    );
+    assert_eq!(
+        parse_expr(".skip"),
+        Ok(("", Expr::Identifier(".skip".to_string())))
+    );
+}
 
 fn parse_term(input: &str) -> IResult<&str, Expr> {
     alt((
@@ -80,6 +110,47 @@ fn parse_term(input: &str) -> IResult<&str, Expr> {
         parse_parenthesized,
         parse_string_literal,
     ))(input)
+}
+
+fn parse_bin_op(input: &str) -> IResult<&str, Expr> {
+    let (input, (left, op, right)) = tuple((parse_term, parse_operator, parse_expr))(input)?;
+
+    Ok((input, Expr::BinOp(Box::new(left), op, Box::new(right))))
+}
+
+#[test]
+fn test_parse_binop() {
+    assert_eq!(
+        parse_bin_op("=,.skip"),
+        Ok((
+            "",
+            Expr::BinOp(
+                Box::new(Expr::SystemOperator('=')),
+                Operator::Comma,
+                Box::new(Expr::Identifier(".skip".to_string()))
+            )
+        ))
+    );
+    let expression = "1,2,3,4";
+    assert_eq!(
+        parse_bin_op(expression),
+        Ok((
+            "",
+            Expr::BinOp(
+                Box::new(Expr::DecimalNum(1)),
+                Operator::Comma,
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::DecimalNum(2)),
+                    Operator::Comma,
+                    Box::new(Expr::BinOp(
+                        Box::new(Expr::DecimalNum(3)),
+                        Operator::Comma,
+                        Box::new(Expr::DecimalNum(4))
+                    ))
+                ))
+            )
+        ))
+    );
 }
 
 fn parse_operator(input: &str) -> IResult<&str, Operator> {
@@ -123,30 +194,13 @@ fn parse_hex(input: &str) -> IResult<&str, Expr> {
 }
 
 fn parse_identifier(input: &str) -> IResult<&str, Expr> {
-    map(alphanumeric1, |id_str: &str| {
-        Expr::Identifier(id_str.to_string())
-    })(input)
-}
-
-fn parse_bin_op(input: &str) -> IResult<&str, Expr> {
-    let (input, (left, op, right)) = tuple((parse_term, parse_operator, parse_expr))(input)?;
-
-    Ok((input, Expr::BinOp(Box::new(left), op, Box::new(right))))
-}
-
-#[test]
-fn test_parse_binop() {
-    assert_eq!(
-        parse_expr("A>$A"),
-        Ok((
-            "",
-            Expr::BinOp(
-                Box::new(Expr::Identifier("A".to_string())),
-                Operator::Greater,
-                Box::new(Expr::ByteNum(10))
-            )
-        ))
-    );
+    map(
+        recognize(tuple((
+            alt((preceded(tag("."), alphanumeric1), alphanumeric1)),
+            many0(alphanumeric1),
+        ))),
+        |id_str: &str| Expr::Identifier(id_str.to_string()),
+    )(input)
 }
 
 fn parse_parenthesized(input: &str) -> IResult<&str, Expr> {
