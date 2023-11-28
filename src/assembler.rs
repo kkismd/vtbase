@@ -12,14 +12,14 @@ pub struct Assembler {
     pub current_label: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LabelEntry {
     pub name: String,
     pub line: usize,
     pub address: Address,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Address {
     Full(u16),
     ZeroPage(u8),

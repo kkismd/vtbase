@@ -84,7 +84,6 @@ fn output_bin(
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
         }
     }
-    // TODO: オブジェクトサイズを返す
     Ok(())
 }
 

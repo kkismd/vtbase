@@ -17,6 +17,8 @@ use std::str::FromStr;
 
 use crate::error::AssemblyError::{self};
 
+pub mod matcher;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Add,
@@ -39,6 +41,7 @@ pub enum Expr {
     Identifier(String),
     BinOp(Box<Expr>, Operator, Box<Expr>),
     Parenthesized(Box<Expr>),
+    Bracketed(Box<Expr>),
     SystemOperator(char),
     Empty,
 }
@@ -206,6 +209,11 @@ fn parse_identifier(input: &str) -> IResult<&str, Expr> {
 fn parse_parenthesized(input: &str) -> IResult<&str, Expr> {
     delimited(tag("("), parse_expr, tag(")"))(input)
         .map(|(remaining_input, expr)| (remaining_input, Expr::Parenthesized(Box::new(expr))))
+}
+
+fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
+    delimited(tag("["), parse_expr, tag("]"))(input)
+        .map(|(remaining_input, expr)| (remaining_input, Expr::Bracketed(Box::new(expr))))
 }
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {

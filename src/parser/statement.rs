@@ -1,13 +1,15 @@
-use std::collections::HashMap;
-
+use super::expression::Operator;
 use crate::assembler::{Address, LabelEntry};
 use crate::error::AssemblyError;
 use crate::opcode::{
     AddressingMode, AssemblyInstruction, Mnemonic, Mode, OpcodeTable, OperandValue,
 };
+use crate::parser::expression::matcher::*;
 use crate::parser::expression::Expr;
-
-use super::expression::Operator;
+use std::collections::HashMap;
+mod decoder;
+use decoder::*;
+use nom::Err;
 
 // instruction in a line of source code
 #[derive(Debug, Clone)]
@@ -105,96 +107,189 @@ impl Statement {
         }
     }
 
+    /**
+     * A=1 or A=$10 or A=label
+     */
+    fn immediate(&self, mnemonic: Mnemonic) -> Result<AssemblyInstruction, AssemblyError> {
+        num8bit(&self.expression)
+            .and_then(|num| self.ok_byte(&mnemonic, Mode::Immediate, num))
+            .map_err(|_| AssemblyError::syntax("invalid immediate"))
+    }
+
+    fn lookup(
+        name: &str,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<LabelEntry, AssemblyError> {
+        labels
+            .get(name)
+            .cloned()
+            .ok_or(AssemblyError::syntax("unknown label"))
+    }
+
+    /**
+     * A=($1F) or A=(31) or A=(label)
+     */
+    fn zeropage(
+        &self,
+        mnemonic: Mnemonic,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        parenthes_within::<u8>(expr, num8bit)
+            // A=($1F) or A=(31)
+            .and_then(|num| self.ok_byte(&mnemonic, Mode::ZeroPage, num))
+            .or_else(|_| {
+                parenthes_within::<String>(expr, identifier)
+                    // A=(label)
+                    .and_then(|name| {
+                        Self::lookup(&name, labels).and_then(|entry| match entry.address {
+                            Address::ZeroPage(addr) => {
+                                self.ok_byte(&mnemonic, Mode::ZeroPage, addr)
+                            }
+                            Address::Full(addr) => self.ok_word(&mnemonic, Mode::Absolute, addr),
+                            _ => Err(AssemblyError::syntax("invalid zeropage")),
+                        })
+                    })
+            })
+    }
+    fn label_zeropage(&self, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+        let expr = &self.expression;
+        identifier(expr).and_then(|name| {
+            Self::lookup(&name, labels).and_then(|entry| match entry.address {
+                Address::ZeroPage(addr) => Ok(addr),
+                _ => Err(AssemblyError::syntax("invalid zeropage")),
+            })
+        })
+    }
+
+    /**
+     * X=($1F+Y) or X=(31+Y) or X=(label+Y)
+     */
+    fn zeropage_y(&self, mnemonic: Mnemonic) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        parenthes_within(expr, plus).and_then(|(left, right)| {
+            register_y(&right)
+                .and_then(|_| {
+                    // X=($1F+Y) or X=(31+Y)
+                    num8bit(&left).and_then(|num| self.ok_byte(&mnemonic, Mode::ZeroPageY, num))
+                })
+                .or_else(|_|
+                    // X=(label+Y)
+                    todo!())
+                .or(self.decode_error())
+        })
+    }
+
+    /**
+     * X=X+1 or X=+
+     */
+    fn incr_decrement(
+        &self,
+        mnemonic_plus: Mnemonic,
+        mnemonic_minus: Mnemonic,
+        register_left: &str,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        self.incr_decr_long(&mnemonic_plus, &mnemonic_minus, register_left)
+            .or_else(|_| self.incr_decr_short(&mnemonic_plus, &mnemonic_minus))
+    }
+
+    /**
+     * X=X+1
+     */
+    fn incr_decr_long(
+        &self,
+        mnemonic_plus: &Mnemonic,
+        mnemonic_minus: &Mnemonic,
+        register_left: &str,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        binop(expr).and_then(|(left, operator, right)| {
+            // X=X+1 or Y=Y+1
+            identifier(&left).and_then(|register_right| {
+                decimal(&right).and_then(|num| {
+                    if num == 1 && register_left == register_right {
+                        match operator {
+                            Operator::Add => self.ok_none(mnemonic_plus.clone(), Mode::Implied),
+                            Operator::Sub => self.ok_none(mnemonic_minus.clone(), Mode::Implied),
+                            _ => self.decode_error(),
+                        }
+                    } else {
+                        self.decode_error()
+                    }
+                })
+            })
+        })
+    }
+
+    /**
+     * X=+
+     */
+    fn incr_decr_short(
+        &self,
+        mnemonic_plus: &Mnemonic,
+        mnemonic_minus: &Mnemonic,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        sysop(expr).and_then(|symbol| {
+            if symbol == '+' {
+                self.ok_none(mnemonic_plus.clone(), Mode::Implied)
+            } else if symbol == '-' {
+                self.ok_none(mnemonic_minus.clone(), Mode::Implied)
+            } else {
+                self.decode_error()
+            }
+        })
+    }
+
     fn decode_x(
         &self,
         labels: &HashMap<String, LabelEntry>,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        if let Expr::ByteNum(num) = *expr {
-            return Ok(AssemblyInstruction::new(
-                Mnemonic::LDX,
-                Mode::Immediate,
-                OperandValue::byte(num),
-            ));
-        }
-        if let Expr::DecimalNum(num) = *expr {
-            if num > 255 {
-                return Err(AssemblyError::syntax("operand must be 8bit"));
-            }
-            return Ok(AssemblyInstruction::new(
-                Mnemonic::LDX,
-                Mode::Immediate,
-                OperandValue::Byte(num as u8),
-            ));
-        }
-        if let Expr::ByteNum(num) = self.expression {
-            return self.ok_byte(Mnemonic::LDX, Mode::ZeroPage, num);
-        }
-        if let Expr::BinOp(left, operator, right) = &self.expression {
-            if let Expr::Identifier(ref s) = **left {
-                if let Expr::DecimalNum(n) = **right {
-                    if s == "X" && n == 1 {
-                        if *operator == Operator::Add {
-                            return self.ok_none(Mnemonic::INX, Mode::Implied);
-                        }
-                        if *operator == Operator::Sub {
-                            return self.ok_none(Mnemonic::DEX, Mode::Implied);
-                        }
-                    }
-                }
-            }
-        }
-        if let Expr::SystemOperator(symbol) = self.expression {
-            if symbol == '+' {
-                return self.ok_none(Mnemonic::INX, Mode::Implied);
-            }
-            if symbol == '-' {
-                return self.ok_none(Mnemonic::DEX, Mode::Implied);
-            }
-        }
-        self.decode_error()
+        self.immediate(Mnemonic::LDX)
+            .or_else(|_| self.zeropage(Mnemonic::LDX, labels))
+            .or_else(|_| self.incr_decrement(Mnemonic::INX, Mnemonic::DEX, "X"))
+            .or_else(|_| self.decode_error())
     }
 
     fn decode_y(
         &self,
         labels: &HashMap<String, LabelEntry>,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        if let Expr::ByteNum(num) = *expr {
-            return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num);
-        }
-        if let Expr::DecimalNum(num) = *expr {
-            if num > 255 {
-                return Err(AssemblyError::syntax("operand must be 8bit"));
+        self.zeropage(Mnemonic::LDY, labels).or_else(|_| {
+            let expr = &self.expression;
+            if let Expr::ByteNum(num) = *expr {
+                return self.ok_byte(&Mnemonic::LDY, Mode::Immediate, num);
             }
-            return self.ok_byte(Mnemonic::LDY, Mode::Immediate, num as u8);
-        }
-        if let Expr::ByteNum(num) = self.expression {
-            return self.ok_byte(Mnemonic::LDY, Mode::ZeroPage, num);
-        }
-        if let Expr::BinOp(left, operator, right) = &self.expression {
-            if let Expr::Identifier(ref s) = **left {
-                if let Expr::DecimalNum(n) = **right {
-                    if s == "Y" && n == 1 {
-                        if *operator == Operator::Add {
-                            return self.ok_none(Mnemonic::INY, Mode::Implied);
-                        }
-                        if *operator == Operator::Sub {
-                            return self.ok_none(Mnemonic::DEY, Mode::Implied);
+            if let Expr::DecimalNum(num) = *expr {
+                if num > 255 {
+                    return Err(AssemblyError::syntax("operand must be 8bit"));
+                }
+                return self.ok_byte(&Mnemonic::LDY, Mode::Immediate, num as u8);
+            }
+            if let Expr::BinOp(left, operator, right) = &self.expression {
+                if let Expr::Identifier(ref s) = **left {
+                    if let Expr::DecimalNum(n) = **right {
+                        if s == "Y" && n == 1 {
+                            if *operator == Operator::Add {
+                                return self.ok_none(Mnemonic::INY, Mode::Implied);
+                            }
+                            if *operator == Operator::Sub {
+                                return self.ok_none(Mnemonic::DEY, Mode::Implied);
+                            }
                         }
                     }
                 }
             }
-        }
-        if let Expr::SystemOperator(symbol) = self.expression {
-            if symbol == '+' {
-                return self.ok_none(Mnemonic::INY, Mode::Implied);
+            if let Expr::SystemOperator(symbol) = self.expression {
+                if symbol == '+' {
+                    return self.ok_none(Mnemonic::INY, Mode::Implied);
+                }
+                if symbol == '-' {
+                    return self.ok_none(Mnemonic::DEY, Mode::Implied);
+                }
             }
-            if symbol == '-' {
-                return self.ok_none(Mnemonic::DEY, Mode::Implied);
-            }
-        }
-        self.decode_error()
+            self.decode_error()
+        })
     }
 
     fn decode_a(
@@ -206,11 +301,11 @@ impl Statement {
             if num > 255 {
                 return Err(AssemblyError::syntax("operand must be 8bit"));
             } else {
-                return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num as u8);
+                return self.ok_byte(&Mnemonic::LDA, Mode::Immediate, num as u8);
             }
         }
         if let Expr::ByteNum(num) = *expr {
-            return self.ok_byte(Mnemonic::LDA, Mode::Immediate, num);
+            return self.ok_byte(&Mnemonic::LDA, Mode::Immediate, num);
         }
         if let Expr::BinOp(left, operator, right) = &self.expression {
             if let Expr::Identifier(ref name) = **left {
@@ -228,11 +323,11 @@ impl Statement {
                     let expr = right;
                     if let Expr::DecimalNum(num) = **expr {
                         if num < 256 {
-                            return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num as u8);
+                            return self.ok_byte(&Mnemonic::SBC, Mode::Immediate, num as u8);
                         }
                     }
                     if let Expr::ByteNum(num) = **expr {
-                        return self.ok_byte(Mnemonic::SBC, Mode::Immediate, num);
+                        return self.ok_byte(&Mnemonic::SBC, Mode::Immediate, num);
                     }
                 }
                 // A=A+$48
@@ -240,11 +335,11 @@ impl Statement {
                     let expr = right;
                     if let Expr::DecimalNum(num) = **expr {
                         if num < 256 {
-                            return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num as u8);
+                            return self.ok_byte(&Mnemonic::ADC, Mode::Immediate, num as u8);
                         }
                     }
                     if let Expr::ByteNum(num) = **expr {
-                        return self.ok_byte(Mnemonic::ADC, Mode::Immediate, num);
+                        return self.ok_byte(&Mnemonic::ADC, Mode::Immediate, num);
                     }
                 }
             }
@@ -264,10 +359,10 @@ impl Statement {
                     .ok_or(AssemblyError::syntax("unknown label"))?;
                 match entry.address {
                     Address::Full(addr) => {
-                        return self.ok_word(Mnemonic::LDA, Mode::Absolute, addr);
+                        return self.ok_word(&Mnemonic::LDA, Mode::Absolute, addr);
                     }
                     Address::ZeroPage(addr) => {
-                        return self.ok_byte(Mnemonic::LDA, Mode::ZeroPage, addr);
+                        return self.ok_byte(&Mnemonic::LDA, Mode::ZeroPage, addr);
                     }
                 }
             }
@@ -286,25 +381,25 @@ impl Statement {
                     if let Expr::DecimalNum(num) = **expr {
                         if num < 256 {
                             if reg == "A" {
-                                return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num as u8);
+                                return self.ok_byte(&Mnemonic::CMP, Mode::Immediate, num as u8);
                             }
                             if reg == "X" {
-                                return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num as u8);
+                                return self.ok_byte(&Mnemonic::CPX, Mode::Immediate, num as u8);
                             }
                             if reg == "Y" {
-                                return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num as u8);
+                                return self.ok_byte(&Mnemonic::CPY, Mode::Immediate, num as u8);
                             }
                         }
                     }
                     if let Expr::ByteNum(num) = **expr {
                         if reg == "A" {
-                            return self.ok_byte(Mnemonic::CMP, Mode::Immediate, num);
+                            return self.ok_byte(&Mnemonic::CMP, Mode::Immediate, num);
                         }
                         if reg == "X" {
-                            return self.ok_byte(Mnemonic::CPX, Mode::Immediate, num);
+                            return self.ok_byte(&Mnemonic::CPX, Mode::Immediate, num);
                         }
                         if reg == "Y" {
-                            return self.ok_byte(Mnemonic::CPY, Mode::Immediate, num);
+                            return self.ok_byte(&Mnemonic::CPY, Mode::Immediate, num);
                         }
                     }
                 }
@@ -336,7 +431,7 @@ impl Statement {
             return self.ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name);
         }
         if let Expr::WordNum(num) = self.expression {
-            return self.ok_word(Mnemonic::JSR, Mode::Absolute, num);
+            return self.ok_word(&Mnemonic::JSR, Mode::Absolute, num);
         }
         self.decode_error()
     }
@@ -347,7 +442,7 @@ impl Statement {
     ) -> Result<AssemblyInstruction, AssemblyError> {
         match &self.expression {
             Expr::WordNum(num) => {
-                return self.ok_word(Mnemonic::JMP, Mode::Absolute, *num);
+                return self.ok_word(&Mnemonic::JMP, Mode::Absolute, *num);
             }
             Expr::Identifier(name) => {
                 return self.ok_unresolved_label(Mnemonic::JMP, Mode::Absolute, &name);
@@ -415,18 +510,18 @@ impl Statement {
                         .ok_or(AssemblyError::syntax("unknown label"))?;
                     match entry.address {
                         Address::Full(addr) => {
-                            return self.ok_word(Mnemonic::STA, Mode::Absolute, addr);
+                            return self.ok_word(&Mnemonic::STA, Mode::Absolute, addr);
                         }
                         Address::ZeroPage(addr) => {
-                            return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, addr);
+                            return self.ok_byte(&Mnemonic::STA, Mode::ZeroPage, addr);
                         }
                     }
                 }
                 Expr::WordNum(num) => {
-                    return self.ok_word(Mnemonic::STA, Mode::Absolute, num);
+                    return self.ok_word(&Mnemonic::STA, Mode::Absolute, num);
                 }
                 Expr::ByteNum(num) => {
-                    return self.ok_byte(Mnemonic::STA, Mode::ZeroPage, num);
+                    return self.ok_byte(&Mnemonic::STA, Mode::ZeroPage, num);
                 }
                 _ => return self.decode_error(),
             }
@@ -437,12 +532,12 @@ impl Statement {
 
     fn ok_byte(
         &self,
-        mnemonic: Mnemonic,
+        mnemonic: &Mnemonic,
         mode: Mode,
         num: u8,
     ) -> Result<AssemblyInstruction, AssemblyError> {
         Ok(AssemblyInstruction::new(
-            mnemonic,
+            mnemonic.clone(),
             mode,
             OperandValue::Byte(num),
         ))
@@ -450,15 +545,24 @@ impl Statement {
 
     fn ok_word(
         &self,
-        mnemonic: Mnemonic,
+        mnemonic: &Mnemonic,
         mode: Mode,
         num: u16,
     ) -> Result<AssemblyInstruction, AssemblyError> {
         Ok(AssemblyInstruction::new(
-            mnemonic,
+            mnemonic.clone(),
             mode,
             OperandValue::Word(num),
         ))
+    }
+
+    fn instruction(
+        &self,
+        mnemonic: Mnemonic,
+        mode: Mode,
+        value: OperandValue,
+    ) -> AssemblyInstruction {
+        AssemblyInstruction::new(mnemonic, mode, value)
     }
 
     fn ok_none(
