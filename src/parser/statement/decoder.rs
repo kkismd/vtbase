@@ -84,6 +84,19 @@ pub fn zeropage_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     })
 }
 
+pub fn zeropage_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+    parenthesized_within(expr, plus).and_then(|(left, right)| {
+        register_x(&right)
+            .and_then(|_| {
+                // X=($1F+X) or X=(31+X)
+                num8bit(&left).and_then(|num| Ok(num))
+            })
+            .or_else(|_|
+                    // X=(label+X)
+                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
+    })
+}
+
 pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_y(&right)
@@ -93,6 +106,41 @@ pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
             })
             .or_else(|_|
                     // X=(label+Y)
+                    absolute_label(&left, labels).and_then(|addr| Ok(addr)))
+    })
+}
+
+#[test]
+fn test_absolute_y() {
+    let mut labels = HashMap::new();
+    labels.insert(
+        "label".to_string(),
+        LabelEntry {
+            name: "label".to_string(),
+            address: Address::Full(0x1234),
+            line: 0,
+        },
+    );
+    let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
+        Box::new(Expr::Identifier("label".to_string())),
+        Operator::Add,
+        Box::new(Expr::Identifier("Y".to_string())),
+    )));
+    assert_eq!(
+        absolute_y(&expr, &labels),
+        Ok(0x1234)
+    );
+}
+
+pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+    parenthesized_within(expr, plus).and_then(|(left, right)| {
+        register_x(&right)
+            .and_then(|_| {
+                // X=($12FF+X) or X=(311+X)
+                num16bit(&left).and_then(|num| Ok(num))
+            })
+            .or_else(|_|
+                    // X=(label+X)
                     absolute_label(&left, labels).and_then(|addr| Ok(addr)))
     })
 }

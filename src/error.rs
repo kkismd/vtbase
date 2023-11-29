@@ -3,7 +3,7 @@ use std::fmt;
 
 use crate::opcode::{AddressingMode, Mnemonic};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AssemblyError {
     SyntaxError(String),
     LabelError(String),
@@ -13,13 +13,13 @@ pub enum AssemblyError {
 }
 
 impl AssemblyError {
-    pub fn message(&self) -> &String {
+    pub fn message(&self) -> &str {
         match self {
             AssemblyError::SyntaxError(details) => details,
             AssemblyError::LabelError(details) => details,
             AssemblyError::ProgramError(details) => details,
             AssemblyError::MacroError(details) => details,
-            AssemblyError::DecodeError => &"decode error".to_string(),
+            AssemblyError::DecodeError => &"decode error",
         }
     }
 

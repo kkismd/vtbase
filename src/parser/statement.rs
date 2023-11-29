@@ -4,12 +4,10 @@ use crate::error::AssemblyError;
 use crate::opcode::{
     AddressingMode, AssemblyInstruction, Mnemonic, Mode, OpcodeTable, OperandValue,
 };
-use crate::parser::expression::matcher::*;
 use crate::parser::expression::Expr;
 use std::collections::HashMap;
 mod decoder;
 use decoder::*;
-use nom::Err;
 
 // instruction in a line of source code
 #[derive(Debug, Clone)]
@@ -113,27 +111,34 @@ impl Statement {
     ) -> Result<AssemblyInstruction, AssemblyError> {
         let expr = &self.expression;
         immediate(expr, labels)
+            // X=$12
             .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::Immediate, num))
             .or_else(|_| {
+                // X=(label), X=(31), X=($1F)
                 zeropage(expr, labels)
                     .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::ZeroPage, num))
             })
             .or_else(|_| {
+                // X=(label+Y), X=(31+Y), X=($1F+Y)
                 zeropage_y(expr, labels)
                     .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::ZeroPageY, num))
             })
             .or_else(|_| {
+                // X=(label), X=(4863), X=($12FF)
                 absolute(expr, labels)
                     .and_then(|num| self.ok_word(&Mnemonic::LDX, Mode::Absolute, num))
             })
             .or_else(|_| {
+                // X=(label+Y), X=(4863+Y), X=($12FF+Y)
                 absolute_y(expr, labels)
                     .and_then(|num| self.ok_word(&Mnemonic::LDX, Mode::AbsoluteY, num))
             })
             .or_else(|_| {
+                // X=X+1, X=+
                 increment(expr, "X").and_then(|_| self.ok_none(&Mnemonic::INX, Mode::Implied))
             })
             .or_else(|_| {
+                // X=X-1, X=-
                 decrement(expr, "X").and_then(|_| self.ok_none(&Mnemonic::DEX, Mode::Implied))
             })
     }
@@ -142,41 +147,31 @@ impl Statement {
         &self,
         labels: &HashMap<String, LabelEntry>,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        self.zeropage(Mnemonic::LDY, labels).or_else(|_| {
-            let expr = &self.expression;
-            if let Expr::ByteNum(num) = *expr {
-                return self.ok_byte(&Mnemonic::LDY, Mode::Immediate, num);
-            }
-            if let Expr::DecimalNum(num) = *expr {
-                if num > 255 {
-                    return Err(AssemblyError::syntax("operand must be 8bit"));
-                }
-                return self.ok_byte(&Mnemonic::LDY, Mode::Immediate, num as u8);
-            }
-            if let Expr::BinOp(left, operator, right) = &self.expression {
-                if let Expr::Identifier(ref s) = **left {
-                    if let Expr::DecimalNum(n) = **right {
-                        if s == "Y" && n == 1 {
-                            if *operator == Operator::Add {
-                                return self.ok_none(Mnemonic::INY, Mode::Implied);
-                            }
-                            if *operator == Operator::Sub {
-                                return self.ok_none(Mnemonic::DEY, Mode::Implied);
-                            }
-                        }
-                    }
-                }
-            }
-            if let Expr::SystemOperator(symbol) = self.expression {
-                if symbol == '+' {
-                    return self.ok_none(Mnemonic::INY, Mode::Implied);
-                }
-                if symbol == '-' {
-                    return self.ok_none(Mnemonic::DEY, Mode::Implied);
-                }
-            }
-            self.decode_error()
-        })
+        let expr = &self.expression;
+        immediate(expr, labels)
+            .and_then(|num| self.ok_byte(&Mnemonic::LDY, Mode::Immediate, num))
+            .or_else(|_| {
+                zeropage(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDY, Mode::ZeroPage, num))
+            })
+            .or_else(|_| {
+                zeropage_x(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDY, Mode::ZeroPageX, num))
+            })
+            .or_else(|_| {
+                absolute(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDY, Mode::Absolute, num))
+            })
+            .or_else(|_| {
+                absolute_x(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDY, Mode::AbsoluteX, num))
+            })
+            .or_else(|_| {
+                increment(expr, "Y").and_then(|_| self.ok_none(&Mnemonic::INY, Mode::Implied))
+            })
+            .or_else(|_| {
+                decrement(expr, "Y").and_then(|_| self.ok_none(&Mnemonic::DEY, Mode::Implied))
+            })
     }
 
     fn decode_a(
@@ -233,9 +228,9 @@ impl Statement {
         }
         if let Expr::Identifier(name) = &self.expression {
             if name == "X" {
-                return self.ok_none(Mnemonic::TXA, Mode::Implied);
+                return self.ok_none(&Mnemonic::TXA, Mode::Implied);
             } else if name == "Y" {
-                return self.ok_none(Mnemonic::TYA, Mode::Implied);
+                return self.ok_none(&Mnemonic::TYA, Mode::Implied);
             }
         }
         // A=(label) => LDA label
@@ -301,10 +296,10 @@ impl Statement {
     ) -> Result<AssemblyInstruction, AssemblyError> {
         if let Expr::DecimalNum(num) = self.expression {
             if num == 1 {
-                return self.ok_none(Mnemonic::SEC, Mode::Implied);
+                return self.ok_none(&Mnemonic::SEC, Mode::Implied);
             }
             if num == 0 {
-                return self.ok_none(Mnemonic::CLC, Mode::Implied);
+                return self.ok_none(&Mnemonic::CLC, Mode::Implied);
             }
         }
         self.decode_error()
@@ -334,7 +329,7 @@ impl Statement {
             Expr::Identifier(name) => {
                 return self.ok_unresolved_label(Mnemonic::JMP, Mode::Absolute, &name);
             }
-            Expr::SystemOperator('!') => return self.ok_none(Mnemonic::RTS, Mode::Implied),
+            Expr::SystemOperator('!') => return self.ok_none(&Mnemonic::RTS, Mode::Implied),
             _ => return self.decode_error(),
         }
     }
@@ -457,7 +452,7 @@ impl Statement {
         mnemonic: &Mnemonic,
         mode: Mode,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(mnemonic, mode, OperandValue::None))
+        Ok(AssemblyInstruction::new(mnemonic.clone(), mode, OperandValue::None))
     }
 
     fn ok_unresolved_label(
