@@ -1,3 +1,4 @@
+use super::expression::matcher::{plus, register_a, register_x, register_y};
 use super::expression::Operator;
 use crate::assembler::{Address, LabelEntry};
 use crate::error::AssemblyError;
@@ -141,6 +142,7 @@ impl Statement {
                 // X=X-1, X=-
                 decrement(expr, "X").and_then(|_| self.ok_none(&Mnemonic::DEX, Mode::Implied))
             })
+            .or_else(|_| self.decode_error())
     }
 
     fn decode_y(
@@ -172,86 +174,113 @@ impl Statement {
             .or_else(|_| {
                 decrement(expr, "Y").and_then(|_| self.ok_none(&Mnemonic::DEY, Mode::Implied))
             })
+            .or_else(|_| self.decode_error())
     }
 
     fn decode_a(
         &self,
         labels: &HashMap<String, LabelEntry>,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        if let Expr::DecimalNum(num) = *expr {
-            if num > 255 {
-                return Err(AssemblyError::syntax("operand must be 8bit"));
-            } else {
-                return self.ok_byte(&Mnemonic::LDA, Mode::Immediate, num as u8);
-            }
-        }
-        if let Expr::ByteNum(num) = *expr {
-            return self.ok_byte(&Mnemonic::LDA, Mode::Immediate, num);
-        }
-        if let Expr::BinOp(left, operator, right) = &self.expression {
-            if let Expr::Identifier(ref name) = **left {
-                if *operator == Operator::Add {
-                    if let Expr::Identifier(ref reg) = **right {
-                        if reg == "X" {
-                            return self.ok_unresolved_label(Mnemonic::LDA, Mode::AbsoluteX, &name);
-                        } else if reg == "Y" {
-                            return self.ok_unresolved_label(Mnemonic::LDA, Mode::AbsoluteY, &name);
-                        }
-                    }
-                }
-                // A=A-$48
-                if name == "A" && *operator == Operator::Sub {
-                    let expr = right;
-                    if let Expr::DecimalNum(num) = **expr {
-                        if num < 256 {
-                            return self.ok_byte(&Mnemonic::SBC, Mode::Immediate, num as u8);
-                        }
-                    }
-                    if let Expr::ByteNum(num) = **expr {
-                        return self.ok_byte(&Mnemonic::SBC, Mode::Immediate, num);
-                    }
-                }
-                // A=A+$48
-                if name == "A" && *operator == Operator::Add {
-                    let expr = right;
-                    if let Expr::DecimalNum(num) = **expr {
-                        if num < 256 {
-                            return self.ok_byte(&Mnemonic::ADC, Mode::Immediate, num as u8);
-                        }
-                    }
-                    if let Expr::ByteNum(num) = **expr {
-                        return self.ok_byte(&Mnemonic::ADC, Mode::Immediate, num);
-                    }
-                }
-            }
-        }
-        if let Expr::Identifier(name) = &self.expression {
-            if name == "X" {
-                return self.ok_none(&Mnemonic::TXA, Mode::Implied);
-            } else if name == "Y" {
-                return self.ok_none(&Mnemonic::TYA, Mode::Implied);
-            }
-        }
-        // A=(label) => LDA label
-        if let Expr::Parenthesized(expr) = &self.expression {
-            if let Expr::Identifier(ref name) = **expr {
-                let entry = labels
-                    .get(name)
-                    .ok_or(AssemblyError::syntax("unknown label"))?;
-                match entry.address {
-                    Address::Full(addr) => {
-                        return self.ok_word(&Mnemonic::LDA, Mode::Absolute, addr);
-                    }
-                    Address::ZeroPage(addr) => {
-                        return self.ok_byte(&Mnemonic::LDA, Mode::ZeroPage, addr);
-                    }
-                }
-            }
-        }
-        self.decode_error()
+        self.decode_lda(labels)
+            .or_else(|_| self.decode_adc(labels))
+            .or_else(|_| self.decode_error())
     }
 
+    /**
+     * Immediate     LDA #$44      A=$44
+     * Zero Page     LDA $44       A=($44)
+     * Zero Page,X   LDA $44,X     A=($44+X)
+     * Absolute      LDA $4400     A=($4400)
+     * Absolute,X    LDA $4400,X   A=($4400+X)
+     * Absolute,Y    LDA $4400,Y   A=($4400+Y)
+     * Indirect,X    LDA ($44,X)   A=[$44+X]
+     * Indirect,Y    LDA ($44),Y   A=[$44]+Y
+     */
+    fn decode_lda(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        immediate(expr, labels)
+            .and_then(|num| self.ok_byte(&Mnemonic::LDA, Mode::Immediate, num))
+            .or_else(|_| {
+                zeropage(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDA, Mode::ZeroPage, num))
+            })
+            .or_else(|_| {
+                zeropage_x(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDA, Mode::ZeroPageX, num))
+            })
+            .or_else(|_| {
+                absolute(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDA, Mode::Absolute, num))
+            })
+            .or_else(|_| {
+                absolute_x(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDA, Mode::AbsoluteX, num))
+            })
+            .or_else(|_| {
+                absolute_y(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDA, Mode::AbsoluteX, num))
+            })
+            .or_else(|_| {
+                indirect_x(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDA, Mode::IndirectX, num))
+            })
+            .or_else(|_| {
+                indirect_y(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDA, Mode::IndirectY, num))
+            })
+            .or_else(|_| register_x(expr).and_then(|_| self.ok_none(&Mnemonic::TXA, Mode::Implied)))
+            .or_else(|_| register_y(expr).and_then(|_| self.ok_none(&Mnemonic::TYA, Mode::Implied)))
+    }
+
+    /**
+     * Immediate     ADC #$44      
+     * Zero Page     ADC $44       
+     * Zero Page,X   ADC $44,X     
+     * Absolute      ADC $4400     
+     * Absolute,X    ADC $4400,X   
+     * Absolute,Y    ADC $4400,Y   
+     * Indirect,X    ADC ($44,X)   
+     * Indirect,Y    ADC ($44),Y   
+     */
+    pub fn decode_adc(
+        &self,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<AssemblyInstruction, AssemblyError> {
+        let expr = &self.expression;
+        plus(expr)
+            .and_then(|(left, right)| {
+                register_a(&left).and_then(|_| {
+                    immediate(&right, labels)
+                        .and_then(|num| self.ok_byte(&Mnemonic::ADC, Mode::Immediate, num))
+                })
+            })
+            .or_else(|_| todo!())
+    }
+
+    /**
+     * CMP (T=A-???)
+     * Immediate     CMP #$44      
+     * Zero Page     CMP $44       
+     * Zero Page,X   CMP $44,X     
+     * Absolute      CMP $4400     
+     * Absolute,X    CMP $4400,X   
+     * Absolute,Y    CMP $4400,Y   
+     * Indirect,X    CMP ($44,X)   
+     * Indirect,Y    CMP ($44),Y   
+     *
+     * CPX (T=X=???)
+     * Immediate     CPX #$44      
+     * Zero Page     CPX $44       
+     * Absolute      CPX $4400     
+     *
+     * CPY (T=Y-???)
+     * Immediate     CPY #$44      
+     * Zero Page     CPY $44       
+     * Absolute      CPY $4400     
+     */
     fn decode_t(
         &self,
         labels: &HashMap<String, LabelEntry>,
@@ -452,7 +481,11 @@ impl Statement {
         mnemonic: &Mnemonic,
         mode: Mode,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        Ok(AssemblyInstruction::new(mnemonic.clone(), mode, OperandValue::None))
+        Ok(AssemblyInstruction::new(
+            mnemonic.clone(),
+            mode,
+            OperandValue::None,
+        ))
     }
 
     fn ok_unresolved_label(

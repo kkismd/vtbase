@@ -15,11 +15,11 @@ TMP1    :=$10
         !=CONINIT               '       JSR CONINIT
         X=0                     '       LDX #0
 
-loop    A=hello+X               '       LDA hello,X
+loop    A=(hello+X)             '       LDA hello,X
         ;==,.skip               '       BEQ .skip
         !=CONOUT                '       JSR CONOUT
         X=+                     '       INX
-        #=loop
+        #=loop                  '       JMP loop
 .skip   !=newline
 
 
