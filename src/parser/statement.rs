@@ -107,148 +107,35 @@ impl Statement {
         }
     }
 
-    /**
-     * A=1 or A=$10 or A=label
-     */
-    fn immediate(&self, mnemonic: Mnemonic) -> Result<AssemblyInstruction, AssemblyError> {
-        num8bit(&self.expression)
-            .and_then(|num| self.ok_byte(&mnemonic, Mode::Immediate, num))
-            .map_err(|_| AssemblyError::syntax("invalid immediate"))
-    }
-
-    fn lookup(
-        name: &str,
-        labels: &HashMap<String, LabelEntry>,
-    ) -> Result<LabelEntry, AssemblyError> {
-        labels
-            .get(name)
-            .cloned()
-            .ok_or(AssemblyError::syntax("unknown label"))
-    }
-
-    /**
-     * A=($1F) or A=(31) or A=(label)
-     */
-    fn zeropage(
-        &self,
-        mnemonic: Mnemonic,
-        labels: &HashMap<String, LabelEntry>,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        parenthes_within::<u8>(expr, num8bit)
-            // A=($1F) or A=(31)
-            .and_then(|num| self.ok_byte(&mnemonic, Mode::ZeroPage, num))
-            .or_else(|_| {
-                parenthes_within::<String>(expr, identifier)
-                    // A=(label)
-                    .and_then(|name| {
-                        Self::lookup(&name, labels).and_then(|entry| match entry.address {
-                            Address::ZeroPage(addr) => {
-                                self.ok_byte(&mnemonic, Mode::ZeroPage, addr)
-                            }
-                            Address::Full(addr) => self.ok_word(&mnemonic, Mode::Absolute, addr),
-                            _ => Err(AssemblyError::syntax("invalid zeropage")),
-                        })
-                    })
-            })
-    }
-    fn label_zeropage(&self, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-        let expr = &self.expression;
-        identifier(expr).and_then(|name| {
-            Self::lookup(&name, labels).and_then(|entry| match entry.address {
-                Address::ZeroPage(addr) => Ok(addr),
-                _ => Err(AssemblyError::syntax("invalid zeropage")),
-            })
-        })
-    }
-
-    /**
-     * X=($1F+Y) or X=(31+Y) or X=(label+Y)
-     */
-    fn zeropage_y(&self, mnemonic: Mnemonic) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        parenthes_within(expr, plus).and_then(|(left, right)| {
-            register_y(&right)
-                .and_then(|_| {
-                    // X=($1F+Y) or X=(31+Y)
-                    num8bit(&left).and_then(|num| self.ok_byte(&mnemonic, Mode::ZeroPageY, num))
-                })
-                .or_else(|_|
-                    // X=(label+Y)
-                    todo!())
-                .or(self.decode_error())
-        })
-    }
-
-    /**
-     * X=X+1 or X=+
-     */
-    fn incr_decrement(
-        &self,
-        mnemonic_plus: Mnemonic,
-        mnemonic_minus: Mnemonic,
-        register_left: &str,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        self.incr_decr_long(&mnemonic_plus, &mnemonic_minus, register_left)
-            .or_else(|_| self.incr_decr_short(&mnemonic_plus, &mnemonic_minus))
-    }
-
-    /**
-     * X=X+1
-     */
-    fn incr_decr_long(
-        &self,
-        mnemonic_plus: &Mnemonic,
-        mnemonic_minus: &Mnemonic,
-        register_left: &str,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        binop(expr).and_then(|(left, operator, right)| {
-            // X=X+1 or Y=Y+1
-            identifier(&left).and_then(|register_right| {
-                decimal(&right).and_then(|num| {
-                    if num == 1 && register_left == register_right {
-                        match operator {
-                            Operator::Add => self.ok_none(mnemonic_plus.clone(), Mode::Implied),
-                            Operator::Sub => self.ok_none(mnemonic_minus.clone(), Mode::Implied),
-                            _ => self.decode_error(),
-                        }
-                    } else {
-                        self.decode_error()
-                    }
-                })
-            })
-        })
-    }
-
-    /**
-     * X=+
-     */
-    fn incr_decr_short(
-        &self,
-        mnemonic_plus: &Mnemonic,
-        mnemonic_minus: &Mnemonic,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
-        let expr = &self.expression;
-        sysop(expr).and_then(|symbol| {
-            if symbol == '+' {
-                self.ok_none(mnemonic_plus.clone(), Mode::Implied)
-            } else if symbol == '-' {
-                self.ok_none(mnemonic_minus.clone(), Mode::Implied)
-            } else {
-                self.decode_error()
-            }
-        })
-    }
-
     fn decode_x(
         &self,
         labels: &HashMap<String, LabelEntry>,
     ) -> Result<AssemblyInstruction, AssemblyError> {
-        self.immediate(Mnemonic::LDX)
-            .or_else(|_| self.zeropage(Mnemonic::LDX, labels))
-            .or_else(|_| self.incr_decrement(Mnemonic::INX, Mnemonic::DEX, "X"))
-            .or_else(|_| self.decode_error())
+        let expr = &self.expression;
+        immediate(expr, labels)
+            .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::Immediate, num))
+            .or_else(|_| {
+                zeropage(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::ZeroPage, num))
+            })
+            .or_else(|_| {
+                zeropage_y(expr, labels)
+                    .and_then(|num| self.ok_byte(&Mnemonic::LDX, Mode::ZeroPageY, num))
+            })
+            .or_else(|_| {
+                absolute(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDX, Mode::Absolute, num))
+            })
+            .or_else(|_| {
+                absolute_y(expr, labels)
+                    .and_then(|num| self.ok_word(&Mnemonic::LDX, Mode::AbsoluteY, num))
+            })
+            .or_else(|_| {
+                increment(expr, "X").and_then(|_| self.ok_none(&Mnemonic::INX, Mode::Implied))
+            })
+            .or_else(|_| {
+                decrement(expr, "X").and_then(|_| self.ok_none(&Mnemonic::DEX, Mode::Implied))
+            })
     }
 
     fn decode_y(
@@ -567,7 +454,7 @@ impl Statement {
 
     fn ok_none(
         &self,
-        mnemonic: Mnemonic,
+        mnemonic: &Mnemonic,
         mode: Mode,
     ) -> Result<AssemblyInstruction, AssemblyError> {
         Ok(AssemblyInstruction::new(mnemonic, mode, OperandValue::None))

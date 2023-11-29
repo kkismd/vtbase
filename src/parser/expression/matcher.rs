@@ -27,6 +27,10 @@ pub fn num8bit(expr: &Expr) -> Result<u8, AssemblyError> {
     byte(expr).or_else(|_| decimal8bit(expr))
 }
 
+pub fn num16bit(expr: &Expr) -> Result<u16, AssemblyError> {
+    word(expr).or_else(|_| decimal(expr))
+}
+
 fn decimal8bit(expr: &Expr) -> Result<u8, AssemblyError> {
     decimal(&expr).and_then(|num| {
         if num > 255 {
