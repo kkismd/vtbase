@@ -119,28 +119,53 @@ fn decode_lda(
 }
 
 /**
- * Immediate     ADC #$44
- * Zero Page     ADC $44
- * Zero Page,X   ADC $44,X
- * Absolute      ADC $4400
- * Absolute,X    ADC $4400,X
- * Absolute,Y    ADC $4400,Y
- * Indirect,X    ADC ($44,X)
- * Indirect,Y    ADC ($44),Y
+ * Immediate     ADC #$44       A=A+$44
+ * Zero Page     ADC $44        A=A+($44)
+ * Zero Page,X   ADC $44,X      A=A+($44+X)
+ * Absolute      ADC $4400      A=A+($4400)
+ * Absolute,X    ADC $4400,X    A=A+($4400+X)
+ * Absolute,Y    ADC $4400,Y    A=A+($4400+Y)
+ * Indirect,X    ADC ($44,X)    A=A+[$44+X]
+ * Indirect,Y    ADC ($44),Y    A=A+[$44]+Y
  */
 fn decode_adc(
     expr: &Expr,
-
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    plus(expr)
-        .and_then(|(left, right)| {
-            register_a(&left).and_then(|_| {
-                immediate(&right, labels)
-                    .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::Immediate, num))
-            })
+    plus(expr).and_then(|(left, right)| {
+        register_a(&left).and_then(|_| {
+            immediate(&right, labels)
+                .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::Immediate, num))
+                .or_else(|_| {
+                    zeropage(&right, labels)
+                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::ZeroPage, num))
+                })
+                .or_else(|_| {
+                    zeropage_x(&right, labels)
+                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::ZeroPageX, num))
+                })
+                .or_else(|_| {
+                    absolute(&right, labels)
+                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::Absolute, num))
+                })
+                .or_else(|_| {
+                    absolute_x(&right, labels)
+                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    absolute_y(&right, labels)
+                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    indirect_x(&right, labels)
+                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::IndirectX, num))
+                })
+                .or_else(|_| {
+                    indirect_y(&right, labels)
+                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::IndirectY, num))
+                })
         })
-        .or_else(|_| todo!())
+    })
 }
 
 /**
@@ -248,69 +273,78 @@ pub fn decode_c(
     _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     decimal(expr).and_then(|num| match num {
+        // C=0
         0 => ok_none(&Mnemonic::CLC, Mode::Implied),
+        // C=1
         1 => ok_none(&Mnemonic::SEC, Mode::Implied),
         _ => decode_error(expr),
     })
 }
 
+/**
+ * JSR label -> !=label
+ * JSR $12df -> !=$12df
+ */
 pub fn decode_call(
     expr: &Expr,
     _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    if let Expr::Identifier(name) = expr {
-        return ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name);
+    identifier(expr)
+        .and_then(|name| ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name))
+        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&Mnemonic::JSR, Mode::Absolute, num)))
+        .or_else(|_| decode_error(expr))
+}
+
+fn sysop_bang(expr: &Expr) -> Result<(), AssemblyError> {
+    if let Expr::SystemOperator('!') = expr {
+        return Ok(());
     }
-    if let Expr::WordNum(num) = expr {
-        return ok_word(&Mnemonic::JSR, Mode::Absolute, *num);
-    }
-    decode_error(expr)
+    Err(AssemblyError::DecodeError)
 }
 
 pub fn decode_goto(
     expr: &Expr,
     _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    match expr {
-        Expr::WordNum(num) => {
-            return ok_word(&Mnemonic::JMP, Mode::Absolute, *num);
-        }
-        Expr::Identifier(name) => {
-            return ok_unresolved_label(Mnemonic::JMP, Mode::Absolute, &name);
-        }
-        Expr::SystemOperator('!') => return ok_none(&Mnemonic::RTS, Mode::Implied),
-        _ => return decode_error(expr),
-    }
+    identifier(expr)
+        .and_then(|name| ok_unresolved_label(Mnemonic::JMP, Mode::Absolute, &name))
+        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&Mnemonic::JMP, Mode::Absolute, num)))
+        .or_else(|_| sysop_bang(expr).and_then(|_| ok_none(&Mnemonic::RTS, Mode::Implied)))
+        .or_else(|_| decode_error(expr))
 }
 
 pub fn decode_if(
     expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
+    _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    // ;=/,$12fd (IF NOT EQUAL THEN GOTO $12FD)
-    if let Expr::BinOp(expr_left, Operator::Comma, expr_right) = expr {
-        if let Expr::SystemOperator(symbol) = **expr_left {
-            match **expr_right {
-                Expr::WordNum(addr) => match symbol {
-                    '\\' => return ok_unresolved_relative(Mnemonic::BNE, Mode::Relative, addr),
-                    '=' => return ok_unresolved_relative(Mnemonic::BEQ, Mode::Relative, addr),
-                    '>' => return ok_unresolved_relative(Mnemonic::BCS, Mode::Relative, addr),
-                    '<' => return ok_unresolved_relative(Mnemonic::BCC, Mode::Relative, addr),
-                    _ => (),
-                },
-                Expr::Identifier(ref name) => match symbol {
-                    '/' => return ok_unresolved_label(Mnemonic::BNE, Mode::Relative, name),
-                    '=' => return ok_unresolved_label(Mnemonic::BEQ, Mode::Relative, name),
-                    '>' => return ok_unresolved_label(Mnemonic::BCS, Mode::Relative, name),
-                    '<' => return ok_unresolved_label(Mnemonic::BCC, Mode::Relative, name),
+    // ;=\,$12fd (IF NOT EQUAL THEN GOTO $12FD)
+    comma(expr)
+        .and_then(|(left, right)| {
+            sysop(&left).and_then(|symbol| {
+                if_condition_mnemonic(symbol).and_then(|mnemonic| {
+                    num16bit(&right)
+                        .and_then(|addr| {
+                            ok_unresolved_relative(mnemonic.clone(), Mode::Relative, addr)
+                        })
+                        .or_else(|_| {
+                            identifier(&right).and_then(|name| {
+                                ok_unresolved_label(mnemonic, Mode::Relative, &name)
+                            })
+                        })
+                })
+            })
+        })
+        .or_else(|_| decode_error(expr))
+}
 
-                    _ => (),
-                },
-                _ => (),
-            }
-        }
+fn if_condition_mnemonic(symbol: char) -> Result<Mnemonic, AssemblyError> {
+    match symbol {
+        '\\' => Ok(Mnemonic::BNE),
+        '=' => Ok(Mnemonic::BEQ),
+        '>' => Ok(Mnemonic::BCS),
+        '<' => Ok(Mnemonic::BCC),
+        _ => Err(AssemblyError::DecodeError),
     }
-    decode_error(expr)
 }
 
 pub fn decode_address(
