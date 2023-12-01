@@ -58,10 +58,6 @@ impl AssemblyError {
         );
         Self::SyntaxError(details)
     }
-
-    pub fn decode() -> Self {
-        Self::DecodeError
-    }
 }
 
 impl fmt::Display for AssemblyError {

@@ -1,13 +1,10 @@
-use super::expression::matcher::{plus, register_a, register_x, register_y};
 use super::expression::Operator;
 use crate::assembler::{Address, LabelEntry};
 use crate::error::AssemblyError;
-use crate::opcode::{
-    AddressingMode, AssemblyInstruction, Mnemonic, Mode, OpcodeTable, OperandValue,
-};
+use crate::opcode::{AddressingMode, AssemblyInstruction, OpcodeTable, OperandValue};
 use crate::parser::expression::Expr;
 use std::collections::HashMap;
-mod decoder;
+pub mod decoder;
 use decoder::*;
 
 // instruction in a line of source code
@@ -40,26 +37,6 @@ impl Statement {
             return command == "*" || command == ":" || command == "?";
         } else {
             false
-        }
-    }
-
-    pub fn validate_pseudo_command(&self) -> Result<(), AssemblyError> {
-        let command = self.command()?;
-        if command == "*" || command == ":" {
-            match self.expression {
-                Expr::WordNum(_) => Ok(()),
-                Expr::ByteNum(_) => Ok(()),
-                _ => Err(AssemblyError::syntax("operand must be address")),
-            }
-        } else if command == "?" {
-            match self.expression {
-                Expr::StringLiteral(_) => Ok(()),
-                Expr::BinOp(_, Operator::Comma, _) => Ok(()),
-                _ => Err(AssemblyError::syntax("operand must be string")),
-            }
-        } else {
-            let details = format!("unknown command: <{}>", command);
-            Err(AssemblyError::syntax(&details))
         }
     }
 

@@ -452,10 +452,6 @@ fn ok_word(
     ))
 }
 
-fn instruction(mnemonic: Mnemonic, mode: Mode, value: OperandValue) -> AssemblyInstruction {
-    AssemblyInstruction::new(mnemonic, mode, value)
-}
-
 fn ok_none(mnemonic: &Mnemonic, mode: Mode) -> Result<AssemblyInstruction, AssemblyError> {
     Ok(AssemblyInstruction::new(
         mnemonic.clone(),

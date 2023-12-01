@@ -129,10 +129,6 @@ pub enum OperandValue {
 }
 
 impl OperandValue {
-    pub fn byte(value: u8) -> Self {
-        Self::Byte(value)
-    }
-
     pub fn unresolved_label(name: &str) -> Self {
         Self::UnresolvedLabel(name.to_string())
     }

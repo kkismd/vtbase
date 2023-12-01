@@ -1,6 +1,7 @@
 use crate::opcode;
+use crate::parser::expression::matcher::{identifier, num16bit, num8bit, plus};
 use crate::parser::expression::Expr;
-use crate::parser::statement::Statement;
+use crate::parser::statement::{decoder, Statement};
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 
@@ -45,20 +46,26 @@ impl Assembler {
     fn assemble_pass1(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
             // eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction);
-            instruction.address = self.pc;
-            self.entry_label(instruction)?;
-            for statement in &instruction.statements {
-                if statement.is_pseudo() {
-                    statement.validate_pseudo_command()?;
-                    self.pseudo_command_pass1(instruction, statement)?;
-                    continue;
-                }
-                let assymbly_instruction = statement.decode(&self.labels)?;
-                let len = assymbly_instruction.addressing_mode.length();
-                self.pc += len as u16;
-            }
+            self.pass1_instruction(instruction).map_err(|e| {
+                eprintln!("line = {:?}, error = {:?}", instruction, e.message());
+                e
+            })?
         }
         Ok(())
+    }
+
+    fn pass1_instruction(&mut self, instruction: &mut Instruction) -> Result<(), AssemblyError> {
+        instruction.address = self.pc;
+        self.entry_label(instruction)?;
+        Ok(for statement in &instruction.statements {
+            if statement.is_pseudo() {
+                self.pseudo_command_pass1(instruction, statement)?;
+                continue;
+            }
+            let assymbly_instruction = statement.decode(&self.labels)?;
+            let len = assymbly_instruction.addressing_mode.length();
+            self.pc += len as u16;
+        })
     }
 
     fn assemble_pass2(
@@ -155,47 +162,60 @@ impl Assembler {
     ) -> Result<(), AssemblyError> {
         let command = statement.command()?;
         if command == "*" {
-            // set stgart address
-            if let Expr::WordNum(address) = statement.expression {
-                self.origin = address;
-                self.pc = address;
-            }
-            Ok(())
+            self.pass1_command_start_address(statement)
         } else if command == ":" {
-            // label def
-            let label_name = instruction
-                .label
-                .clone()
-                .ok_or(AssemblyError::program("label def need label"))?;
-            // fetch label entry
-            let label_entry = self
-                .labels
-                .get_mut(&label_name)
-                .ok_or(AssemblyError::program("label not found"))?;
-            // set address to entry
-            if let Expr::WordNum(address) = statement.expression {
-                label_entry.address = Address::Full(address);
-            } else if let Expr::ByteNum(address) = statement.expression {
-                label_entry.address = Address::ZeroPage(address as u8);
-            } else {
-                return Err(AssemblyError::program("invalid label def"));
-            }
-            Ok(())
+            self.pass1_command_label_def(instruction, statement)
         } else if command == "?" {
-            let values = statement.expression.traverse_comma();
-            for value in values {
-                match value {
-                    Expr::ByteNum(_) => self.pc += 1,
-                    Expr::WordNum(_) => self.pc += 2,
-                    Expr::DecimalNum(_) => self.pc += 1,
-                    Expr::StringLiteral(ref s) => self.pc += s.len() as u16,
-                    _ => (),
-                }
-            }
-            Ok(())
+            self.pass1_command_data_def(statement)
         } else {
             Ok(())
         }
+    }
+
+    fn pass1_command_label_def(
+        &mut self,
+        instruction: &Instruction,
+        statement: &Statement,
+    ) -> Result<(), AssemblyError> {
+        // label def
+        let label_name = instruction
+            .label
+            .clone()
+            .ok_or(AssemblyError::program("label def need label"))?;
+        // fetch label entry
+        let label_entry = self
+            .labels
+            .get_mut(&label_name)
+            .ok_or(AssemblyError::program("label not found"))?;
+        // set address to entry
+        if let Expr::WordNum(address) = statement.expression {
+            label_entry.address = Address::Full(address);
+        } else if let Expr::ByteNum(address) = statement.expression {
+            label_entry.address = Address::ZeroPage(address as u8);
+        }
+        Ok(())
+    }
+
+    fn pass1_command_data_def(&mut self, statement: &Statement) -> Result<(), AssemblyError> {
+        let values = statement.expression.traverse_comma();
+        for value in values {
+            self.pc += match value {
+                Expr::ByteNum(_) => 1,
+                Expr::WordNum(_) => 2,
+                Expr::DecimalNum(_) => 1,
+                Expr::StringLiteral(ref s) => s.len() as u16,
+                _ => 0,
+            }
+        }
+        Ok(())
+    }
+
+    fn pass1_command_start_address(&mut self, statement: &Statement) -> Result<(), AssemblyError> {
+        if let Expr::WordNum(address) = statement.expression {
+            self.origin = address;
+            self.pc = address;
+        }
+        Ok(())
     }
     fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
         let command = statement.command()?;
@@ -242,5 +262,17 @@ impl Assembler {
             address: Address::Full(address),
         };
         self.labels.insert(name.to_string(), entry);
+    }
+
+    fn lookup_label_mut(&mut self, name: &str) -> Result<&mut LabelEntry, AssemblyError> {
+        self.labels
+            .get_mut(name)
+            .ok_or(AssemblyError::label_not_found(name))
+    }
+
+    fn lookup_label(&self, name: &str) -> Result<&LabelEntry, AssemblyError> {
+        self.labels
+            .get(name)
+            .ok_or(AssemblyError::label_not_found(name))
     }
 }

@@ -48,6 +48,12 @@ impl Instruction {
             object_codes: vec![],
         }
     }
+
+    pub fn label_name(&self) -> Result<String, AssemblyError> {
+        self.label
+            .clone()
+            .ok_or(AssemblyError::syntax("label not defined"))
+    }
 }
 
 // make abstract syntax tree from input file
@@ -66,7 +72,7 @@ pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, AssemblyError> {
 }
 // make abstract syntax tree
 fn parse_line(line: String, line_num: usize) -> Result<Instruction, AssemblyError> {
-    let line = remove_after_quote(&line);
+    let line = remove_after_double_semicolon(&line);
     let cap = match_line(&line, line_num)?;
 
     let body = cap.name("body").map_or("", |m| m.as_str());
@@ -184,17 +190,28 @@ fn test_tokenize() {
     assert_eq!(tokens[4], "($00)=A");
 }
 
-fn remove_after_quote(s: &str) -> String {
+fn remove_after_double_semicolon(s: &str) -> String {
     let mut result = String::new();
     let mut in_quotes = false;
-    for c in s.chars() {
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
         if c == '"' {
             in_quotes = !in_quotes;
         }
-        if c == '\'' && !in_quotes {
-            break;
+        if c == ';' && !in_quotes {
+            if let Some(&next) = chars.peek() {
+                if next == ';' {
+                    break;
+                }
+            }
         }
         result.push(c);
     }
     result
+}
+
+#[test]
+fn test_remove_after_quote() {
+    let s = "A=1 ;; comment";
+    assert_eq!(remove_after_double_semicolon(s), "A=1 ");
 }

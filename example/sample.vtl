@@ -1,48 +1,57 @@
-' PROGRAM Hello World 
-'   for VTBase (Very Tiny BASE assembler)
+;; PROGRAM Hello World 
+;;   for VTBase (Very Tiny BASE assembler)
 
-' Monitor subroutines
+;; Monitor subroutines
 CONINIT :=$FD1B
 CONOUT  :=$FD39
 UNIMON  :=$F600
 
-' Zero page variables
+;; Zero page variables
 TMP1    :=$10
 
-        *=$D000                 '       ORG $D000
+        *=$D000                 ;;       ORG $D000
 
-        'initialize
-        !=CONINIT               '       JSR CONINIT
-        X=0                     '       LDX #0
+        ;;  initialize
+        !=CONINIT               ;;       JSR CONINIT
+        X=0                     ;;       LDX #0
 
-loop    A=(hello+X)             '       LDA hello,X
-        ;==,.skip               '       BEQ .skip
-        !=CONOUT                '       JSR CONOUT
-        X=+                     '       INX
-        #=loop                  '       JMP loop
+loop    A=(hello+X)             ;;       LDA hello,X
+        ;==,.skip               ;;       BEQ .skip
+        !=CONOUT                ;;       JSR CONOUT
+        X=+                     ;;       INX
+        #=loop                  ;;       JMP loop
 .skip   !=newline
 
 
-        Y=0                     '       LDY #0
-        @                       ' .macro1_do
-        A=Y                     '       TYA
-        (TMP1)=A                '       STA TMP1
-        !=byte2char             '       JSR byte2char
-        Y=Y+1                   '       INY
-        @=Y<20                  '       CPY #20
-                                '       BCS .macro1_do_next
-                                '       JMP .macro1_do
-                                ' .macro1_do_next
+        Y=0                     ;;       LDY #0
+        @                       ;; .macro1_do
+        A=Y                     ;;       TYA
+        (TMP1)=A                ;;       STA TMP1
+        !=byte2char             ;;       JSR byte2char
+        Y=Y+1                   ;;       INY
+        @=Y<20                  ;;       CPY #20
+                                ;;       BCS .macro1_do_next
+                                ;;       JMP .macro1_do
+                                ;; .macro1_do_next
         !=newline
 
-stop    #=UNIMON                '       JMP UNIMON
+        ;; インダイレクトモードの実験を書く
+        ;; ポインタの設定
+
+        ;; ポインタ経由で書き込む
+        ;; ポインタ経由で読み込む
+        ;; 結果を比較する
+        ;; 比較結果を印字する
+
+
+stop    #=UNIMON                ;;       JMP UNIMON
 
 byte2char
-        A=(TMP1)                '       LDA TMP1
+        A=(TMP1)                ;;       LDA TMP1
         ;=A>$A C=0 A=A+7
         A=A+$30
-        !=CONOUT                '       JSR CONOUT
-        #=!                     '       RTS
+        !=CONOUT                ;;       JSR CONOUT
+        #=!                     ;;       RTS
 
 newline
         A=$0d
@@ -51,4 +60,4 @@ newline
         !=CONOUT
         #=!
 
-hello   ?="HELLO, WORLD.",0       '       !text "HELLO, WORLD."
+hello   ?="HELLO, WORLD.",0     ;;       !text "HELLO, WORLD."
