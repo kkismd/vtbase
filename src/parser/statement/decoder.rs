@@ -8,6 +8,9 @@ use crate::{
     parser::expression::{matcher::parenthesized, Expr, Operator},
 };
 
+use crate::opcode::AddressingMode::*;
+use crate::opcode::Mnemonic::*;
+
 type Decoder<T> = fn(&Expr) -> Result<T, AssemblyError>;
 
 pub fn decode_x(
@@ -16,30 +19,30 @@ pub fn decode_x(
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         // X=$12
-        .and_then(|num| ok_byte(&Mnemonic::LDX, Mode::Immediate, num))
+        .and_then(|num| ok_byte(&LDX, Immediate, num))
         .or_else(|_| {
             // X=(label), X=(31), X=($1F)
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDX, Mode::ZeroPage, num))
+            zeropage(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPage, num))
         })
         .or_else(|_| {
             // X=(label+Y), X=(31+Y), X=($1F+Y)
-            zeropage_y(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDX, Mode::ZeroPageY, num))
+            zeropage_y(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPageY, num))
         })
         .or_else(|_| {
             // X=(label), X=(4863), X=($12FF)
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::LDX, Mode::Absolute, num))
+            absolute(expr, labels).and_then(|num| ok_word(&LDX, Absolute, num))
         })
         .or_else(|_| {
             // X=(label+Y), X=(4863+Y), X=($12FF+Y)
-            absolute_y(expr, labels).and_then(|num| ok_word(&Mnemonic::LDX, Mode::AbsoluteY, num))
+            absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num))
         })
         .or_else(|_| {
             // X=X+1, X=+
-            increment(expr, "X").and_then(|_| ok_none(&Mnemonic::INX, Mode::Implied))
+            increment(expr, "X").and_then(|_| ok_none(&INX, Implied))
         })
         .or_else(|_| {
             // X=X-1, X=-
-            decrement(expr, "X").and_then(|_| ok_none(&Mnemonic::DEX, Mode::Implied))
+            decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied))
         })
         .or_else(|_| decode_error(expr))
 }
@@ -49,21 +52,13 @@ pub fn decode_y(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::LDY, Mode::Immediate, num))
-        .or_else(|_| {
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDY, Mode::ZeroPage, num))
-        })
-        .or_else(|_| {
-            zeropage_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDY, Mode::ZeroPageX, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::LDY, Mode::Absolute, num))
-        })
-        .or_else(|_| {
-            absolute_x(expr, labels).and_then(|num| ok_word(&Mnemonic::LDY, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| increment(expr, "Y").and_then(|_| ok_none(&Mnemonic::INY, Mode::Implied)))
-        .or_else(|_| decrement(expr, "Y").and_then(|_| ok_none(&Mnemonic::DEY, Mode::Implied)))
+        .and_then(|num| ok_byte(&LDY, Immediate, num))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDY, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&LDY, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LDY, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&LDY, AbsoluteX, num)))
+        .or_else(|_| increment(expr, "Y").and_then(|_| ok_none(&INY, Implied)))
+        .or_else(|_| decrement(expr, "Y").and_then(|_| ok_none(&DEY, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -92,30 +87,16 @@ fn decode_lda(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::LDA, Mode::Immediate, num))
-        .or_else(|_| {
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDA, Mode::ZeroPage, num))
-        })
-        .or_else(|_| {
-            zeropage_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDA, Mode::ZeroPageX, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::LDA, Mode::Absolute, num))
-        })
-        .or_else(|_| {
-            absolute_x(expr, labels).and_then(|num| ok_word(&Mnemonic::LDA, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| {
-            absolute_y(expr, labels).and_then(|num| ok_word(&Mnemonic::LDA, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| {
-            indirect_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDA, Mode::IndirectX, num))
-        })
-        .or_else(|_| {
-            indirect_y(expr, labels).and_then(|num| ok_byte(&Mnemonic::LDA, Mode::IndirectY, num))
-        })
-        .or_else(|_| register_x(expr).and_then(|_| ok_none(&Mnemonic::TXA, Mode::Implied)))
-        .or_else(|_| register_y(expr).and_then(|_| ok_none(&Mnemonic::TYA, Mode::Implied)))
+        .and_then(|num| ok_byte(&LDA, Immediate, num))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDA, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&LDA, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LDA, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&LDA, AbsoluteX, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDA, AbsoluteX, num)))
+        .or_else(|_| indirect_x(expr, labels).and_then(|num| ok_byte(&LDA, IndirectX, num)))
+        .or_else(|_| indirect_y(expr, labels).and_then(|num| ok_byte(&LDA, IndirectY, num)))
+        .or_else(|_| register_x(expr).and_then(|_| ok_none(&TXA, Implied)))
+        .or_else(|_| register_y(expr).and_then(|_| ok_none(&TYA, Implied)))
 }
 
 /**
@@ -135,34 +116,23 @@ fn decode_adc(
     plus(expr).and_then(|(left, right)| {
         register_a(&left).and_then(|_| {
             immediate(&right, labels)
-                .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::Immediate, num))
+                .and_then(|num| ok_byte(&ADC, Immediate, num))
+                .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&ADC, ZeroPage, num)))
                 .or_else(|_| {
-                    zeropage(&right, labels)
-                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::ZeroPage, num))
+                    zeropage_x(&right, labels).and_then(|num| ok_byte(&ADC, ZeroPageX, num))
+                })
+                .or_else(|_| absolute(&right, labels).and_then(|num| ok_word(&ADC, Absolute, num)))
+                .or_else(|_| {
+                    absolute_x(&right, labels).and_then(|num| ok_word(&ADC, AbsoluteX, num))
                 })
                 .or_else(|_| {
-                    zeropage_x(&right, labels)
-                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::ZeroPageX, num))
+                    absolute_y(&right, labels).and_then(|num| ok_word(&ADC, AbsoluteX, num))
                 })
                 .or_else(|_| {
-                    absolute(&right, labels)
-                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::Absolute, num))
+                    indirect_x(&right, labels).and_then(|num| ok_byte(&ADC, IndirectX, num))
                 })
                 .or_else(|_| {
-                    absolute_x(&right, labels)
-                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::AbsoluteX, num))
-                })
-                .or_else(|_| {
-                    absolute_y(&right, labels)
-                        .and_then(|num| ok_word(&Mnemonic::ADC, Mode::AbsoluteX, num))
-                })
-                .or_else(|_| {
-                    indirect_x(&right, labels)
-                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::IndirectX, num))
-                })
-                .or_else(|_| {
-                    indirect_y(&right, labels)
-                        .and_then(|num| ok_byte(&Mnemonic::ADC, Mode::IndirectY, num))
+                    indirect_y(&right, labels).and_then(|num| ok_byte(&ADC, IndirectY, num))
                 })
         })
     })
@@ -204,28 +174,14 @@ fn decode_cmp(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::CMP, Mode::Immediate, num))
-        .or_else(|_| {
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::CMP, Mode::ZeroPage, num))
-        })
-        .or_else(|_| {
-            zeropage_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::CMP, Mode::ZeroPageX, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::CMP, Mode::Absolute, num))
-        })
-        .or_else(|_| {
-            absolute_x(expr, labels).and_then(|num| ok_word(&Mnemonic::CMP, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| {
-            absolute_y(expr, labels).and_then(|num| ok_word(&Mnemonic::CMP, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| {
-            indirect_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::CMP, Mode::IndirectX, num))
-        })
-        .or_else(|_| {
-            indirect_y(expr, labels).and_then(|num| ok_byte(&Mnemonic::CMP, Mode::IndirectY, num))
-        })
+        .and_then(|num| ok_byte(&CMP, Immediate, num))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CMP, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&CMP, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CMP, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&CMP, AbsoluteX, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&CMP, AbsoluteX, num)))
+        .or_else(|_| indirect_x(expr, labels).and_then(|num| ok_byte(&CMP, IndirectX, num)))
+        .or_else(|_| indirect_y(expr, labels).and_then(|num| ok_byte(&CMP, IndirectY, num)))
 }
 
 /**
@@ -239,13 +195,9 @@ fn decode_cpx(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::CPX, Mode::Immediate, num))
-        .or_else(|_| {
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::CPX, Mode::ZeroPage, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::CPX, Mode::Absolute, num))
-        })
+        .and_then(|num| ok_byte(&CPX, Immediate, num))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CPX, ZeroPage, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CPX, Absolute, num)))
 }
 
 /**
@@ -259,13 +211,9 @@ fn decode_cpy(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::CPY, Mode::Immediate, num))
-        .or_else(|_| {
-            zeropage(expr, labels).and_then(|num| ok_byte(&Mnemonic::CPY, Mode::ZeroPage, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::CPY, Mode::Absolute, num))
-        })
+        .and_then(|num| ok_byte(&CPY, Immediate, num))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CPY, ZeroPage, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CPY, Absolute, num)))
 }
 
 pub fn decode_c(
@@ -274,9 +222,9 @@ pub fn decode_c(
 ) -> Result<AssemblyInstruction, AssemblyError> {
     decimal(expr).and_then(|num| match num {
         // C=0
-        0 => ok_none(&Mnemonic::CLC, Mode::Implied),
+        0 => ok_none(&CLC, Implied),
         // C=1
-        1 => ok_none(&Mnemonic::SEC, Mode::Implied),
+        1 => ok_none(&SEC, Implied),
         _ => decode_error(expr),
     })
 }
@@ -290,8 +238,8 @@ pub fn decode_call(
     _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     identifier(expr)
-        .and_then(|name| ok_unresolved_label(Mnemonic::JSR, Mode::Absolute, &name))
-        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&Mnemonic::JSR, Mode::Absolute, num)))
+        .and_then(|name| ok_unresolved_label(JSR, Absolute, &name))
+        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&JSR, Absolute, num)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -307,9 +255,9 @@ pub fn decode_goto(
     _labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     identifier(expr)
-        .and_then(|name| ok_unresolved_label(Mnemonic::JMP, Mode::Absolute, &name))
-        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&Mnemonic::JMP, Mode::Absolute, num)))
-        .or_else(|_| sysop_bang(expr).and_then(|_| ok_none(&Mnemonic::RTS, Mode::Implied)))
+        .and_then(|name| ok_unresolved_label(JMP, Absolute, &name))
+        .or_else(|_| num16bit(expr).and_then(|num| ok_word(&JMP, Absolute, num)))
+        .or_else(|_| sysop_bang(expr).and_then(|_| ok_none(&RTS, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -323,13 +271,10 @@ pub fn decode_if(
             sysop(&left).and_then(|symbol| {
                 if_condition_mnemonic(symbol).and_then(|mnemonic| {
                     num16bit(&right)
-                        .and_then(|addr| {
-                            ok_unresolved_relative(mnemonic.clone(), Mode::Relative, addr)
-                        })
+                        .and_then(|addr| ok_unresolved_relative(mnemonic.clone(), Relative, addr))
                         .or_else(|_| {
-                            identifier(&right).and_then(|name| {
-                                ok_unresolved_label(mnemonic, Mode::Relative, &name)
-                            })
+                            identifier(&right)
+                                .and_then(|name| ok_unresolved_label(mnemonic, Relative, &name))
                         })
                 })
             })
@@ -339,10 +284,10 @@ pub fn decode_if(
 
 fn if_condition_mnemonic(symbol: char) -> Result<Mnemonic, AssemblyError> {
     match symbol {
-        '\\' => Ok(Mnemonic::BNE),
-        '=' => Ok(Mnemonic::BEQ),
-        '>' => Ok(Mnemonic::BCS),
-        '<' => Ok(Mnemonic::BCC),
+        '\\' => Ok(BNE),
+        '=' => Ok(BEQ),
+        '>' => Ok(BCS),
+        '<' => Ok(BCC),
         _ => Err(AssemblyError::DecodeError),
     }
 }
@@ -373,25 +318,13 @@ pub fn decode_sta(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::STA, Mode::ZeroPage, num))
-        .or_else(|_| {
-            zeropage_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::STA, Mode::ZeroPageX, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::STA, Mode::Absolute, num))
-        })
-        .or_else(|_| {
-            absolute_x(expr, labels).and_then(|num| ok_word(&Mnemonic::STA, Mode::AbsoluteX, num))
-        })
-        .or_else(|_| {
-            absolute_y(expr, labels).and_then(|num| ok_word(&Mnemonic::STA, Mode::AbsoluteY, num))
-        })
-        .or_else(|_| {
-            indirect_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::STA, Mode::IndirectX, num))
-        })
-        .or_else(|_| {
-            indirect_y(expr, labels).and_then(|num| ok_byte(&Mnemonic::STA, Mode::IndirectY, num))
-        })
+        .and_then(|num| ok_byte(&STA, ZeroPage, num))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&STA, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&STA, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&STA, AbsoluteX, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&STA, AbsoluteY, num)))
+        .or_else(|_| indirect_x(expr, labels).and_then(|num| ok_byte(&STA, IndirectX, num)))
+        .or_else(|_| indirect_y(expr, labels).and_then(|num| ok_byte(&STA, IndirectY, num)))
 }
 
 /**
@@ -404,13 +337,9 @@ pub fn decode_stx(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::STX, Mode::ZeroPage, num))
-        .or_else(|_| {
-            zeropage_y(expr, labels).and_then(|num| ok_byte(&Mnemonic::STX, Mode::ZeroPageY, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::STX, Mode::Absolute, num))
-        })
+        .and_then(|num| ok_byte(&STX, ZeroPage, num))
+        .or_else(|_| zeropage_y(expr, labels).and_then(|num| ok_byte(&STX, ZeroPageY, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&STX, Absolute, num)))
 }
 
 /**
@@ -423,13 +352,9 @@ pub fn decode_sty(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
-        .and_then(|num| ok_byte(&Mnemonic::STY, Mode::ZeroPage, num))
-        .or_else(|_| {
-            zeropage_x(expr, labels).and_then(|num| ok_byte(&Mnemonic::STY, Mode::ZeroPageX, num))
-        })
-        .or_else(|_| {
-            absolute(expr, labels).and_then(|num| ok_word(&Mnemonic::STY, Mode::Absolute, num))
-        })
+        .and_then(|num| ok_byte(&STY, ZeroPage, num))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&STY, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&STY, Absolute, num)))
 }
 
 fn ok_byte(mnemonic: &Mnemonic, mode: Mode, num: u8) -> Result<AssemblyInstruction, AssemblyError> {
