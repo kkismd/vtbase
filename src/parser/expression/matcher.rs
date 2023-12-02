@@ -83,6 +83,20 @@ pub fn binop(expr: &Expr) -> Result<(Expr, Operator, Expr), AssemblyError> {
     }
 }
 
+pub fn hi(expr: &Expr) -> Result<Expr, AssemblyError> {
+    match expr {
+        Expr::HiByte(expr) => Ok(*expr.clone()),
+        _ => syntax_error("invalid hi"),
+    }
+}
+
+pub fn lo(expr: &Expr) -> Result<Expr, AssemblyError> {
+    match expr {
+        Expr::LoByte(expr) => Ok(*expr.clone()),
+        _ => syntax_error("invalid lo"),
+    }
+}
+
 fn ok2(a: &Box<Expr>, c: &Box<Expr>) -> Result<(Expr, Expr), AssemblyError> {
     Ok((*a.clone(), *c.clone()))
 }

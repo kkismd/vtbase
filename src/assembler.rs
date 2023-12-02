@@ -1,7 +1,6 @@
 use crate::opcode;
-use crate::parser::expression::matcher::{identifier, num16bit, num8bit, plus};
 use crate::parser::expression::Expr;
-use crate::parser::statement::{decoder, Statement};
+use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
 

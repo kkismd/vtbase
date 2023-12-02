@@ -126,48 +126,6 @@ fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
     };
     Ok(statement)
 }
-#[test]
-fn test_parse_token() {
-    let statement = parse_token("A=1").unwrap();
-    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
-    assert_eq!(statement.expression, Expr::DecimalNum(1));
-
-    let statement = parse_token("A=$10").unwrap();
-    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
-    assert_eq!(statement.expression, Expr::ByteNum(0x10));
-
-    let statement = parse_token("A=$10+X").unwrap();
-    assert_eq!(statement.command, Expr::Identifier("A".to_string()));
-    assert_eq!(
-        statement.expression,
-        Expr::BinOp(
-            Box::new(Expr::ByteNum(0x10)),
-            expression::Operator::Add,
-            Box::new(Expr::Identifier("X".to_string()))
-        )
-    );
-    let statement = parse_token(":=$80FF").unwrap();
-    assert_eq!(statement.command, Expr::SystemOperator(':'));
-    assert_eq!(statement.expression, Expr::WordNum(0x80FF));
-
-    let statement = parse_token("($10)=A").unwrap();
-    assert_eq!(
-        statement.command,
-        Expr::Parenthesized(Box::new(Expr::ByteNum(0x10)))
-    );
-    assert_eq!(statement.expression, Expr::Identifier("A".to_string()));
-
-    let statement = parse_token(";==,.skip").unwrap();
-    assert_eq!(statement.command, Expr::SystemOperator(';'));
-    assert_eq!(
-        statement.expression,
-        Expr::BinOp(
-            Box::new(Expr::SystemOperator('=')),
-            expression::Operator::Comma,
-            Box::new(Expr::Identifier(".skip".to_string()))
-        )
-    );
-}
 
 fn tokenize(text: &str) -> Vec<String> {
     let re = Regex::new(r#"("[^"]*"|\S)+"#).unwrap();
@@ -178,16 +136,6 @@ fn tokenize(text: &str) -> Vec<String> {
     }
 
     tokens
-}
-#[test]
-fn test_tokenize() {
-    let tokens = tokenize("@ A=1 B=2 C=\"hello world\",0 ($00)=A");
-    assert_eq!(tokens.len(), 5);
-    assert_eq!(tokens[0], "@");
-    assert_eq!(tokens[1], "A=1");
-    assert_eq!(tokens[2], "B=2");
-    assert_eq!(tokens[3], "C=\"hello world\",0");
-    assert_eq!(tokens[4], "($00)=A");
 }
 
 fn remove_after_double_semicolon(s: &str) -> String {
@@ -210,8 +158,83 @@ fn remove_after_double_semicolon(s: &str) -> String {
     result
 }
 
-#[test]
-fn test_remove_after_quote() {
-    let s = "A=1 ;; comment";
-    assert_eq!(remove_after_double_semicolon(s), "A=1 ");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_assignemnt_decimal() {
+        let statement = parse_token("A=1").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::DecimalNum(1));
+    }
+
+    #[test]
+    fn test_parse_assignemnt_hex() {
+        let statement = parse_token("A=$10").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::ByteNum(0x10));
+    }
+
+    #[test]
+    fn test_parse_assignment_zerox() {
+        let statement = parse_token("A=$10+X").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(
+            statement.expression,
+            Expr::BinOp(
+                Box::new(Expr::ByteNum(0x10)),
+                expression::Operator::Add,
+                Box::new(Expr::Identifier("X".to_string()))
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_label_def() {
+        let statement = parse_token(":=$80FF").unwrap();
+        assert_eq!(statement.command, Expr::SystemOperator(':'));
+        assert_eq!(statement.expression, Expr::WordNum(0x80FF));
+    }
+
+    #[test]
+    fn test_parse_sta() {
+        let statement = parse_token("($10)=A").unwrap();
+        assert_eq!(
+            statement.command,
+            Expr::Parenthesized(Box::new(Expr::ByteNum(0x10)))
+        );
+        assert_eq!(statement.expression, Expr::Identifier("A".to_string()));
+    }
+
+    #[test]
+    fn test_parse_token_ifeq() {
+        let statement = parse_token(";==,.skip").unwrap();
+        assert_eq!(statement.command, Expr::SystemOperator(';'));
+        assert_eq!(
+            statement.expression,
+            Expr::BinOp(
+                Box::new(Expr::SystemOperator('=')),
+                expression::Operator::Comma,
+                Box::new(Expr::Identifier(".skip".to_string()))
+            )
+        );
+    }
+
+    #[test]
+    fn test_tokenize() {
+        let tokens = tokenize("@ A=1 B=2 C=\"hello world\",0 ($00)=A");
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0], "@");
+        assert_eq!(tokens[1], "A=1");
+        assert_eq!(tokens[2], "B=2");
+        assert_eq!(tokens[3], "C=\"hello world\",0");
+        assert_eq!(tokens[4], "($00)=A");
+    }
+
+    #[test]
+    fn test_remove_after_quote() {
+        let s = "A=1 ;; comment";
+        assert_eq!(remove_after_double_semicolon(s), "A=1 ");
+    }
 }

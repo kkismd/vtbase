@@ -247,7 +247,7 @@ fn sysop_bang(expr: &Expr) -> Result<(), AssemblyError> {
     if let Expr::SystemOperator('!') = expr {
         return Ok(());
     }
-    Err(AssemblyError::DecodeError)
+    decode_error(expr)
 }
 
 pub fn decode_goto(
@@ -288,7 +288,7 @@ fn if_condition_mnemonic(symbol: char) -> Result<Mnemonic, AssemblyError> {
         '=' => Ok(BEQ),
         '>' => Ok(BCS),
         '<' => Ok(BCC),
-        _ => Err(AssemblyError::DecodeError),
+        _ => decode_error(&Expr::SystemOperator(symbol)),
     }
 }
 
@@ -409,11 +409,8 @@ fn ok_unresolved_relative(
     ))
 }
 
-fn decode_error(expr: &Expr) -> Result<AssemblyInstruction, AssemblyError> {
-    Err(AssemblyError::syntax(&format!(
-        "bad expression: {:?}",
-        expr
-    )))
+fn decode_error<T>(expr: &Expr) -> Result<T, AssemblyError> {
+    Err(AssemblyError::decode_failed(&format!("{:?}", expr)))
 }
 
 pub fn parenthesized_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, AssemblyError> {
@@ -424,17 +421,42 @@ pub fn bracketed_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, Assemb
     bracketed(&expr).and_then(|expr| decoder(&expr))
 }
 
-fn error<T>() -> Result<T, AssemblyError> {
-    Err(AssemblyError::DecodeError)
-}
-
 /**
- * A=1 or A=$10 or A=label
+ * A=1 or A=$10 or A=label or A=<label or A=>label
  */
 pub fn immediate(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
     num8bit(expr)
         .and_then(|num| Ok(num))
         .or_else(|_| zeropage_label(expr, labels))
+        .or_else(|_| hi_label(expr, labels))
+        .or_else(|_| lo_label(expr, labels))
+        .or_else(|_| decode_error(expr))
+}
+
+fn hi_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+    hi(expr).and_then(|label| {
+        identifier(&label).and_then(|name| {
+            lookup(&name, labels)
+                .and_then(|entry| match entry.address {
+                    Address::Full(addr) => Ok((addr >> 8) as u8),
+                    _ => decode_error(expr),
+                })
+                .or_else(|_| Ok(0 as u8))
+        })
+    })
+}
+
+fn lo_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+    lo(expr).and_then(|label| {
+        identifier(&label).and_then(|name| {
+            lookup(&name, labels)
+                .and_then(|entry| match entry.address {
+                    Address::Full(addr) => Ok((addr & 0xff) as u8),
+                    _ => decode_error(expr),
+                })
+                .or_else(|_| Ok(0 as u8))
+        })
+    })
 }
 
 fn lookup(name: &str, labels: &HashMap<String, LabelEntry>) -> Result<LabelEntry, AssemblyError> {
@@ -465,7 +487,7 @@ fn normal_zeropage_label(
     identifier(expr).and_then(|name| {
         lookup(&name, labels).and_then(|entry| match entry.address {
             Address::ZeroPage(addr) => Ok(addr),
-            _ => error(),
+            _ => decode_error(expr),
         })
     })
 }
@@ -496,7 +518,7 @@ fn full_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, 
         lookup(&name, labels)
             .and_then(|entry| match entry.address {
                 Address::Full(addr) => Ok(addr),
-                _ => error(),
+                _ => decode_error(expr),
             })
             .or_else(|_| Ok(0 as u16))
     })
@@ -552,25 +574,6 @@ pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     })
 }
 
-#[test]
-fn test_absolute_y() {
-    let mut labels = HashMap::new();
-    labels.insert(
-        "label".to_string(),
-        LabelEntry {
-            name: "label".to_string(),
-            address: Address::Full(0x1234),
-            line: 0,
-        },
-    );
-    let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
-        Box::new(Expr::Identifier("label".to_string())),
-        Operator::Add,
-        Box::new(Expr::Identifier("Y".to_string())),
-    )));
-    assert_eq!(absolute_y(&expr, &labels), Ok(0x1234));
-}
-
 pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_x(&right)
@@ -582,26 +585,6 @@ pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
                     // X=(label+X)
                     absolute_label(&left, labels).and_then(|addr| Ok(addr)))
     })
-}
-
-#[test]
-fn test_absolute_x() {
-    let mut labels = HashMap::new();
-    labels.insert(
-        "label".to_string(),
-        LabelEntry {
-            name: "label".to_string(),
-            address: Address::Full(0x1234),
-            line: 0,
-        },
-    );
-    // Parenthesized(BinOp(Identifier(\"hello\"), Add, Identifier(\"X\")))
-    let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
-        Box::new(Expr::Identifier("label".to_string())),
-        Operator::Add,
-        Box::new(Expr::Identifier("X".to_string())),
-    )));
-    assert_eq!(absolute_x(&expr, &labels), Ok(0x1234));
 }
 
 // Indirect,X    LDA ($44,X)   A=[$44+X]
@@ -623,37 +606,15 @@ pub fn indirect_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     plus(expr).and_then(|(ref left, ref right)| {
         // A=[$1F]+Y or A=[31]+Y
         register_y(right).and_then(|_| {
-            bracketed(left)
-                .and_then(|num| {
-                    // A=[$1F]+Y
-                    num8bit(&num).and_then(|addr| Ok(addr))
+            bracketed(left).and_then(|num| {
+                // A=[$1F]+Y
+                num8bit(&num).and_then(|addr| Ok(addr)).or_else(|_| {
+                    // A=[31]+Y
+                    zeropage_label(&num, labels).and_then(|addr| Ok(addr))
                 })
-                .or_else(|_| {
-                    // A=[label]+Y
-                    bracketed(left).and_then(|label| zeropage_label(&label, labels))
-                })
+            })
         })
     })
-}
-#[test]
-fn test_indirect_y() {
-    let mut labels = HashMap::new();
-    labels.insert(
-        "label".to_string(),
-        LabelEntry {
-            name: "label".to_string(),
-            address: Address::ZeroPage(0x12),
-            line: 0,
-        },
-    );
-    let expr = Expr::BinOp(
-        Box::new(Expr::Bracketed(Box::new(Expr::Identifier(
-            "label".to_string(),
-        )))),
-        Operator::Add,
-        Box::new(Expr::Identifier("Y".to_string())),
-    );
-    assert_eq!(indirect_y(&expr, &labels), Ok(0x12));
 }
 
 /**
@@ -666,14 +627,14 @@ pub fn incr_decrement(expr: &Expr, register_left: &str) -> Result<Operator, Asse
 pub fn increment(expr: &Expr, register_left: &str) -> Result<(), AssemblyError> {
     incr_decrement(expr, register_left).and_then(|operator| match operator {
         Operator::Add => Ok(()),
-        _ => error(),
+        _ => decode_error(expr),
     })
 }
 
 pub fn decrement(expr: &Expr, register_left: &str) -> Result<(), AssemblyError> {
     incr_decrement(expr, register_left).and_then(|operator| match operator {
         Operator::Sub => Ok(()),
-        _ => error(),
+        _ => decode_error(expr),
     })
 }
 
@@ -688,10 +649,10 @@ fn incr_decr_long(expr: &Expr, register_left: &str) -> Result<Operator, Assembly
                 if num == 1 && register_left == register_right {
                     match operator {
                         Operator::Add | Operator::Sub => Ok(operator),
-                        _ => error(),
+                        _ => decode_error(expr),
                     }
                 } else {
-                    error()
+                    decode_error(expr)
                 }
             })
         })
@@ -708,7 +669,121 @@ fn incr_decr_short(expr: &Expr) -> Result<Operator, AssemblyError> {
         } else if symbol == '-' {
             Ok(Operator::Sub)
         } else {
-            error()
+            decode_error(expr)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_absolute_y() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::Full(0x1234),
+                line: 0,
+            },
+        );
+        let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
+            Box::new(Expr::Identifier("label".to_string())),
+            Operator::Add,
+            Box::new(Expr::Identifier("Y".to_string())),
+        )));
+        assert_eq!(absolute_y(&expr, &labels), Ok(0x1234));
+    }
+
+    #[test]
+    fn test_absolute_x() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::Full(0x1234),
+                line: 0,
+            },
+        );
+        // Parenthesized(BinOp(Identifier(\"hello\"), Add, Identifier(\"X\")))
+        let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
+            Box::new(Expr::Identifier("label".to_string())),
+            Operator::Add,
+            Box::new(Expr::Identifier("X".to_string())),
+        )));
+        assert_eq!(absolute_x(&expr, &labels), Ok(0x1234));
+    }
+
+    #[test]
+    fn test_indirect_y() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::ZeroPage(0x12),
+                line: 0,
+            },
+        );
+        let expr = Expr::BinOp(
+            Box::new(Expr::Bracketed(Box::new(Expr::Identifier(
+                "label".to_string(),
+            )))),
+            Operator::Add,
+            Box::new(Expr::Identifier("Y".to_string())),
+        );
+        assert_eq!(indirect_y(&expr, &labels), Ok(0x12));
+    }
+
+    #[test]
+    fn test_hi_label() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::Full(0x1234),
+                line: 0,
+            },
+        );
+        let expr = Expr::HiByte(Box::new(Expr::Identifier("label".to_string())));
+        assert_eq!(hi_label(&expr, &labels), Ok(0x12));
+    }
+
+    #[test]
+    fn test_lo_label() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::Full(0x1234),
+                line: 0,
+            },
+        );
+        let expr = Expr::LoByte(Box::new(Expr::Identifier("label".to_string())));
+        assert_eq!(lo_label(&expr, &labels), Ok(0x34));
+    }
+
+    #[test]
+    fn test_lda_lo_label() {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "label".to_string(),
+            LabelEntry {
+                name: "label".to_string(),
+                address: Address::Full(0x1234),
+                line: 0,
+            },
+        );
+        let (rest, expr) = crate::parser::expression::parse_lobyte("<label").unwrap();
+        assert_eq!(
+            decode_a(&expr, &labels).unwrap(),
+            AssemblyInstruction::new(LDA, Immediate, OperandValue::Byte(0x34))
+        );
+        assert_eq!(rest, "");
+    }
 }

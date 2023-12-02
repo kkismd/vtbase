@@ -4,7 +4,7 @@ use nom::{
     bytes::complete::is_not,
     bytes::complete::tag,
     bytes::complete::take_while_m_n,
-    character::complete::{alphanumeric1, digit1, none_of, one_of},
+    character::complete::{alpha1, alphanumeric1, digit1, none_of, one_of},
     combinator::{map, verify},
     combinator::{map_res, recognize},
     multi::many0,
@@ -37,6 +37,8 @@ pub enum Expr {
     DecimalNum(u16),
     ByteNum(u8),
     WordNum(u16),
+    HiByte(Box<Expr>),
+    LoByte(Box<Expr>),
     StringLiteral(String),
     Identifier(String),
     BinOp(Box<Expr>, Operator, Box<Expr>),
@@ -79,38 +81,28 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
         parse_bin_op,
         parse_decimal,
         parse_hex,
+        parse_char,
+        parse_hibyte,
+        parse_lobyte,
         parse_sysop,
         parse_identifier,
         parse_parenthesized,
+        parse_bracketed,
         parse_string_literal,
     ))(input)
-}
-#[test]
-fn test_parse_expr() {
-    assert_eq!(
-        parse_expr("A>$A"),
-        Ok((
-            "",
-            Expr::BinOp(
-                Box::new(Expr::Identifier("A".to_string())),
-                Operator::Greater,
-                Box::new(Expr::ByteNum(10))
-            )
-        ))
-    );
-    assert_eq!(
-        parse_expr(".skip"),
-        Ok(("", Expr::Identifier(".skip".to_string())))
-    );
 }
 
 fn parse_term(input: &str) -> IResult<&str, Expr> {
     alt((
         parse_decimal,
         parse_hex,
+        parse_char,
+        parse_hibyte,
+        parse_lobyte,
         parse_sysop,
         parse_identifier,
         parse_parenthesized,
+        parse_bracketed,
         parse_string_literal,
     ))(input)
 }
@@ -119,41 +111,6 @@ fn parse_bin_op(input: &str) -> IResult<&str, Expr> {
     let (input, (left, op, right)) = tuple((parse_term, parse_operator, parse_expr))(input)?;
 
     Ok((input, Expr::BinOp(Box::new(left), op, Box::new(right))))
-}
-
-#[test]
-fn test_parse_binop() {
-    assert_eq!(
-        parse_bin_op("=,.skip"),
-        Ok((
-            "",
-            Expr::BinOp(
-                Box::new(Expr::SystemOperator('=')),
-                Operator::Comma,
-                Box::new(Expr::Identifier(".skip".to_string()))
-            )
-        ))
-    );
-    let expression = "1,2,3,4";
-    assert_eq!(
-        parse_bin_op(expression),
-        Ok((
-            "",
-            Expr::BinOp(
-                Box::new(Expr::DecimalNum(1)),
-                Operator::Comma,
-                Box::new(Expr::BinOp(
-                    Box::new(Expr::DecimalNum(2)),
-                    Operator::Comma,
-                    Box::new(Expr::BinOp(
-                        Box::new(Expr::DecimalNum(3)),
-                        Operator::Comma,
-                        Box::new(Expr::DecimalNum(4))
-                    ))
-                ))
-            )
-        ))
-    );
 }
 
 fn parse_operator(input: &str) -> IResult<&str, Operator> {
@@ -196,11 +153,34 @@ fn parse_hex(input: &str) -> IResult<&str, Expr> {
     }
 }
 
+// 'c' => 0x63 (ASCII code)
+fn parse_char(input: &str) -> IResult<&str, Expr> {
+    let (input, c) = preceded(tag("'"), none_of("'"))(input)?;
+    let (input, _) = tag("'")(input)?;
+    Ok((input, Expr::ByteNum(c as u8)))
+}
+
+// #>label  == MSB == Hi-Byte
+fn parse_hibyte(input: &str) -> IResult<&str, Expr> {
+    map_res(
+        preceded(tag(">"), parse_identifier),
+        |expr: Expr| -> Result<Expr, ParseIntError> { Ok(Expr::HiByte(Box::new(expr))) },
+    )(input)
+}
+
+// #<label  == LSB == Lo-Byte
+pub fn parse_lobyte(input: &str) -> IResult<&str, Expr> {
+    map_res(
+        preceded(tag("<"), parse_identifier),
+        |expr: Expr| -> Result<Expr, ParseIntError> { Ok(Expr::LoByte(Box::new(expr))) },
+    )(input)
+}
+
 fn parse_identifier(input: &str) -> IResult<&str, Expr> {
     map(
         recognize(tuple((
-            alt((preceded(tag("."), alphanumeric1), alphanumeric1)),
-            many0(alphanumeric1),
+            alt((alpha1, tag("_"), tag("."))),
+            many0(alt((alphanumeric1, tag("_")))),
         ))),
         |id_str: &str| Expr::Identifier(id_str.to_string()),
     )(input)
@@ -218,7 +198,7 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        one_of("-<>=/+_#!^:;*@?"),
+        one_of("-<>=/+_#\\!^:;*@?"),
         |c: char| -> Result<Expr, ParseIntError> { Ok(Expr::SystemOperator(c)) },
     )(input)
 }
@@ -240,4 +220,111 @@ fn parse_string_literal(input: &str) -> IResult<&str, Expr> {
         ),
         |s: String| -> Result<Expr, ParseIntError> { Ok(Expr::StringLiteral(s)) },
     )(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_identifier_with_single_letter() {
+        assert_eq!(
+            parse_identifier("A"),
+            Ok(("", Expr::Identifier("A".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_identifier_with_number() {
+        assert_eq!(
+            parse_identifier("A1"),
+            Ok(("", Expr::Identifier("A1".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_identifier_with_underscore() {
+        assert_eq!(
+            parse_identifier("A_1"),
+            Ok(("", Expr::Identifier("A_1".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_identifier_with_dot_and_num() {
+        assert_eq!(
+            parse_identifier(".1"),
+            Ok(("", Expr::Identifier(".1".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_identifier_with_dot() {
+        assert_eq!(
+            parse_identifier(".A1"),
+            Ok(("", Expr::Identifier(".A1".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_identifier_with_unexpected_character() {
+        assert_eq!(
+            parse_identifier("A-1"),
+            Ok(("-1", Expr::Identifier("A".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_binop() {
+        assert_eq!(
+            parse_bin_op("=,.skip"),
+            Ok((
+                "",
+                Expr::BinOp(
+                    Box::new(Expr::SystemOperator('=')),
+                    Operator::Comma,
+                    Box::new(Expr::Identifier(".skip".to_string()))
+                )
+            ))
+        );
+        let expression = "1,2,3,4";
+        assert_eq!(
+            parse_bin_op(expression),
+            Ok((
+                "",
+                Expr::BinOp(
+                    Box::new(Expr::DecimalNum(1)),
+                    Operator::Comma,
+                    Box::new(Expr::BinOp(
+                        Box::new(Expr::DecimalNum(2)),
+                        Operator::Comma,
+                        Box::new(Expr::BinOp(
+                            Box::new(Expr::DecimalNum(3)),
+                            Operator::Comma,
+                            Box::new(Expr::DecimalNum(4))
+                        ))
+                    ))
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_expr() {
+        assert_eq!(
+            parse_expr("A>$A"),
+            Ok((
+                "",
+                Expr::BinOp(
+                    Box::new(Expr::Identifier("A".to_string())),
+                    Operator::Greater,
+                    Box::new(Expr::ByteNum(10))
+                )
+            ))
+        );
+        assert_eq!(
+            parse_expr(".skip"),
+            Ok(("", Expr::Identifier(".skip".to_string())))
+        );
+    }
 }

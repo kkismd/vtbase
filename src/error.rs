@@ -9,7 +9,7 @@ pub enum AssemblyError {
     LabelError(String),
     ProgramError(String),
     MacroError(String),
-    DecodeError,
+    DecodeError(String),
 }
 
 impl AssemblyError {
@@ -19,7 +19,7 @@ impl AssemblyError {
             AssemblyError::LabelError(details) => details,
             AssemblyError::ProgramError(details) => details,
             AssemblyError::MacroError(details) => details,
-            AssemblyError::DecodeError => &"decode error",
+            AssemblyError::DecodeError(details) => details,
         }
     }
 
@@ -58,6 +58,10 @@ impl AssemblyError {
         );
         Self::SyntaxError(details)
     }
+
+    pub fn decode_failed(details: &str) -> Self {
+        Self::DecodeError(details.to_string())
+    }
 }
 
 impl fmt::Display for AssemblyError {
@@ -67,7 +71,7 @@ impl fmt::Display for AssemblyError {
             AssemblyError::LabelError(details) => write!(f, "label error: {}", details),
             AssemblyError::ProgramError(details) => write!(f, "syntax error: {}", details),
             AssemblyError::MacroError(details) => write!(f, "syntax error: {}", details),
-            AssemblyError::DecodeError => write!(f, "decode error"),
+            AssemblyError::DecodeError(details) => write!(f, "decode error: {}", details),
         }
     }
 }

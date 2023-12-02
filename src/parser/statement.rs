@@ -28,6 +28,8 @@ impl Statement {
             Expr::Identifier(command) => Ok(command.clone()),
             Expr::SystemOperator(symbol) => Ok(symbol.to_string()),
             Expr::Parenthesized(_) => Ok("(#<Expr>)".to_string()),
+            Expr::Bracketed(_) => Ok("[#<Expr>]".to_string()),
+            Expr::BinOp(_, Operator::Add, _) => Ok("#<Expr>+#<Expr>".to_string()),
             _ => Err(AssemblyError::syntax("must be identifier")),
         }
     }
