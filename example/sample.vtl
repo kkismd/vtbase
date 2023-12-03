@@ -51,8 +51,8 @@ stop    #=UNIMON                ;;      JMP UNIMON
 
 byte2char
         A=(TMP1)                ;;      LDA TMP1
-        ;=A>$A C=0 A=A+7
-        A=A+$30
+        ;=A>$A C=0 A=AC+7
+        A=AC+$30
         !=CONOUT                ;;      JSR CONOUT
         #=!                     ;;      RTS
 

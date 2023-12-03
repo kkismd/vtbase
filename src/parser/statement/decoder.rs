@@ -83,7 +83,6 @@ pub fn decode_a(
  */
 fn decode_lda(
     expr: &Expr,
-
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
@@ -100,21 +99,21 @@ fn decode_lda(
 }
 
 /**
- * Immediate     ADC #$44       A=A+$44
- * Zero Page     ADC $44        A=A+($44)
- * Zero Page,X   ADC $44,X      A=A+($44+X)
- * Absolute      ADC $4400      A=A+($4400)
- * Absolute,X    ADC $4400,X    A=A+($4400+X)
- * Absolute,Y    ADC $4400,Y    A=A+($4400+Y)
- * Indirect,X    ADC ($44,X)    A=A+[$44+X]
- * Indirect,Y    ADC ($44),Y    A=A+[$44]+Y
+ * Immediate     ADC #$44       A=AC+$44
+ * Zero Page     ADC $44        A=AC+($44)
+ * Zero Page,X   ADC $44,X      A=AC+($44+X)
+ * Absolute      ADC $4400      A=AC+($4400)
+ * Absolute,X    ADC $4400,X    A=AC+($4400+X)
+ * Absolute,Y    ADC $4400,Y    A=AC+($4400+Y)
+ * Indirect,X    ADC ($44,X)    A=AC+[$44+X]
+ * Indirect,Y    ADC ($44),Y    A=AC+[$44]+Y
  */
 fn decode_adc(
     expr: &Expr,
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     plus(expr).and_then(|(left, right)| {
-        register_a(&left).and_then(|_| {
+        register_ac(&left).and_then(|_| {
             immediate(&right, labels)
                 .and_then(|num| ok_byte(&ADC, Immediate, num))
                 .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&ADC, ZeroPage, num)))

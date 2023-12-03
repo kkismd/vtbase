@@ -42,14 +42,6 @@ impl Statement {
         }
     }
 
-    pub fn is_macro(&self) -> bool {
-        match self.command {
-            Expr::SystemOperator('@') => true,
-            Expr::SystemOperator(';') => self.check_macro_if_statement(),
-            _ => false,
-        }
-    }
-
     // ;=記号,式 の場合はマクロではない
     // それ以外の二項演算子の場合はマクロ
     pub fn check_macro_if_statement(&self) -> bool {

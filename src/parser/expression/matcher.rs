@@ -76,6 +76,13 @@ pub fn register_a(expr: &Expr) -> Result<(), AssemblyError> {
     }
 }
 
+pub fn register_ac(expr: &Expr) -> Result<(), AssemblyError> {
+    match expr {
+        Expr::Identifier(s) if s == "AC" => Ok(()),
+        _ => syntax_error("invalid register AC"),
+    }
+}
+
 pub fn binop(expr: &Expr) -> Result<(Expr, Operator, Expr), AssemblyError> {
     match expr {
         Expr::BinOp(left, op, right) => ok3(left, op, right),

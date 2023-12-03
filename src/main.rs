@@ -49,13 +49,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run(sorce_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
     let instructions = parser::parse_from_file(sorce_file)?;
-    // print insts for debug
-    // for inst in &instructions {
-    // eprintln!(
-    //     "line number: {}, address: {}, label: {:?}, statements: {:?}",
-    //     inst.line_number, inst.address, inst.label, inst.statements,
-    // );
-    // }
     let mut instructions = assembly_macro::expand(&instructions)?;
     let mut assembler = Assembler::new();
     let obj_size = assembler.assemble(&mut instructions)?;

@@ -25,14 +25,11 @@ fn transform_instruction(
         return Ok(vec![instruction.clone()]);
     }
     let statement = &instruction.statements[0];
-    if !statement.is_macro() {
-        return Ok(vec![instruction.clone()]);
-    }
     let command = statement.command()?;
     match command.as_str() {
         ";" => transform_if_statement(instruction),
         "@" => transform_do_statement(instruction, stack),
-        _ => Ok(vec![instruction.clone()]),
+        _ => transform_statements(&instruction),
     }
 }
 
@@ -50,6 +47,10 @@ fn transform_instruction(
  *  #macro_0.1
  */
 fn transform_if_statement(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
+    if !(&instruction.statements[0]).check_macro_if_statement() {
+        return Ok(vec![instruction.clone()]);
+    }
+
     let mut result = vec![];
     let label = generate_macro_identifier();
     let header = instruction.new_label(&label);
@@ -97,8 +98,8 @@ fn expand_if_statement(
             Operator::Greater => '<',
             _ => {
                 return Err(AssemblyError::MacroError(format!(
-                    "invalid operator {:?}",
-                    op
+                    "{:?} expand_if_statement() invalid operator {:?}",
+                    instruction, op
                 )))
             }
         };
@@ -221,7 +222,7 @@ fn expand_do_statement(
             Operator::Greater => '<',
             _ => {
                 return Err(AssemblyError::MacroError(format!(
-                    "invalid operator {:?}",
+                    "expand_do_statement() invalid operator {:?}",
                     op
                 )))
             }
@@ -257,6 +258,23 @@ fn expand_do_statement(
     }
 
     Ok(result)
+}
+
+fn transform_statements(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
+    let statements = &instruction.statements;
+    let mut result = vec![];
+    for statement in statements {
+        let stmt = transform_statement(statement)?;
+        result.push(stmt);
+    }
+
+    let mut inst = instruction.clone();
+    inst.statements = result;
+    Ok(vec![inst])
+}
+
+fn transform_statement(statement: &Statement) -> Result<Statement, AssemblyError> {
+    Ok(statement.clone())
 }
 
 use std::sync::atomic::{AtomicUsize, Ordering};
