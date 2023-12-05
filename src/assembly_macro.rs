@@ -118,12 +118,18 @@ fn expand_if_statement(
 
         // 3rd line
         // A=A+1 Y=Y+1
-        let stmt3 = instruction.statements[1..].to_vec();
+        let then_statements = instruction.statements[1..].to_vec();
+        let mut expanded_statements = vec![];
+        for statement in then_statements {
+            let stmt = transform_statement(&statement)?;
+            expanded_statements.extend(stmt);
+        }
+
         let inst3 = Instruction::new(
             instruction.line_number,
             instruction.address,
             None,
-            stmt3,
+            expanded_statements,
             vec![],
         );
         result.push(inst3);
@@ -264,8 +270,8 @@ fn transform_statements(instruction: &Instruction) -> Result<Vec<Instruction>, A
     let statements = &instruction.statements;
     let mut result = vec![];
     for statement in statements {
-        let stmt = transform_statement(statement)?;
-        result.push(stmt);
+        let transformd_statements = transform_statement(statement)?;
+        result.extend(transformd_statements);
     }
 
     let mut inst = instruction.clone();
@@ -273,11 +279,41 @@ fn transform_statements(instruction: &Instruction) -> Result<Vec<Instruction>, A
     Ok(vec![inst])
 }
 
-fn transform_statement(statement: &Statement) -> Result<Statement, AssemblyError> {
-    Ok(statement.clone())
+fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, AssemblyError> {
+    a_plus_n(&statement.expression)
+        .map(|expr| transform_adc_statement(&expr))
+        .or_else(|_| Ok(vec![statement.clone()]))
 }
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+fn a_plus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
+    match expr {
+        Expr::BinOp(lhs, Operator::Add, rhs) => match **lhs {
+            Expr::Identifier(ref id) if id == "A" => Ok((**rhs).clone()),
+            _ => Err(AssemblyError::MacroError("a_plus_n() ".to_string())),
+        },
+        _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
+    }
+}
+
+// A=A+n -> C=0 A=AC+n
+fn transform_adc_statement(expr: &Expr) -> Vec<Statement> {
+    let mut result = vec![];
+    let stmt1 = Statement::new("C", Expr::DecimalNum(0));
+    let ac_plus_n = Expr::BinOp(
+        Box::new(Expr::Identifier("AC".to_string())),
+        Operator::Add,
+        Box::new(expr.clone()),
+    );
+    let stmt2 = Statement::new("A", ac_plus_n);
+    result.push(stmt1);
+    result.push(stmt2);
+    result
+}
+
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 

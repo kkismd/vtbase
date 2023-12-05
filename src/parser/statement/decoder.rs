@@ -68,6 +68,7 @@ pub fn decode_a(
 ) -> Result<AssemblyInstruction, AssemblyError> {
     decode_lda(expr, labels)
         .or_else(|_| decode_adc(expr, labels))
+        .or_else(|_| decode_sbc(expr, labels))
         .or_else(|_| decode_error(expr))
 }
 
@@ -132,6 +133,45 @@ fn decode_adc(
                 })
                 .or_else(|_| {
                     indirect_y(&right, labels).and_then(|num| ok_byte(&ADC, IndirectY, num))
+                })
+        })
+    })
+}
+
+/**
+ * Immediate     SBC #$44      A=AC-$44
+ * Zero Page     SBC $44       A=AC-($44)
+ * Zero Page,X   SBC $44,X     A=AC-($44+X)
+ * Absolute      SBC $4400     A=AC-($4400)
+ * Absolute,X    SBC $4400,X   A=AC-($4400+X)
+ * Absolute,Y    SBC $4400,Y   A=AC-($4400+Y)
+ * Indirect,X    SBC ($44,X)   A=AC-[$44+X]
+ * Indirect,Y    SBC ($44),Y   A=AC-[$44]+Y
+ */
+fn decode_sbc(
+    expr: &Expr,
+    labels: &HashMap<String, LabelEntry>,
+) -> Result<AssemblyInstruction, AssemblyError> {
+    minus(expr).and_then(|(left, right)| {
+        register_ac(&left).and_then(|_| {
+            immediate(&right, labels)
+                .and_then(|num| ok_byte(&SBC, Immediate, num))
+                .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&SBC, ZeroPage, num)))
+                .or_else(|_| {
+                    zeropage_x(&right, labels).and_then(|num| ok_byte(&SBC, ZeroPageX, num))
+                })
+                .or_else(|_| absolute(&right, labels).and_then(|num| ok_word(&SBC, Absolute, num)))
+                .or_else(|_| {
+                    absolute_x(&right, labels).and_then(|num| ok_word(&SBC, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    absolute_y(&right, labels).and_then(|num| ok_word(&SBC, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    indirect_x(&right, labels).and_then(|num| ok_byte(&SBC, IndirectX, num))
+                })
+                .or_else(|_| {
+                    indirect_y(&right, labels).and_then(|num| ok_byte(&SBC, IndirectY, num))
                 })
         })
     })
