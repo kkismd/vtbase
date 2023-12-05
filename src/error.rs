@@ -3,21 +3,23 @@ use std::fmt;
 
 use crate::opcode::{AddressingMode, Mnemonic};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AssemblyError {
     SyntaxError(String),
     LabelError(String),
     ProgramError(String),
     MacroError(String),
+    DecodeError(String),
 }
 
 impl AssemblyError {
-    pub fn message(&self) -> &String {
+    pub fn message(&self) -> &str {
         match self {
             AssemblyError::SyntaxError(details) => details,
             AssemblyError::LabelError(details) => details,
             AssemblyError::ProgramError(details) => details,
             AssemblyError::MacroError(details) => details,
+            AssemblyError::DecodeError(details) => details,
         }
     }
 
@@ -41,6 +43,10 @@ impl AssemblyError {
         Self::LabelError(format!("line: {line_num} label <{name}> alreadsy used"))
     }
 
+    pub fn label_not_found(name: &str) -> Self {
+        Self::LabelError(format!("label <{name}> not found"))
+    }
+
     pub fn program(details: &str) -> Self {
         Self::ProgramError(format!("program error: {details}"))
     }
@@ -52,6 +58,10 @@ impl AssemblyError {
         );
         Self::SyntaxError(details)
     }
+
+    pub fn decode_failed(details: &str) -> Self {
+        Self::DecodeError(details.to_string())
+    }
 }
 
 impl fmt::Display for AssemblyError {
@@ -61,6 +71,7 @@ impl fmt::Display for AssemblyError {
             AssemblyError::LabelError(details) => write!(f, "label error: {}", details),
             AssemblyError::ProgramError(details) => write!(f, "syntax error: {}", details),
             AssemblyError::MacroError(details) => write!(f, "syntax error: {}", details),
+            AssemblyError::DecodeError(details) => write!(f, "decode error: {}", details),
         }
     }
 }

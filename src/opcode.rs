@@ -101,7 +101,7 @@ impl AddressingMode {
 }
 
 // アセンブリ命令を表現する構造体
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct AssemblyInstruction {
     pub mnemonic: Mnemonic,
     pub addressing_mode: AddressingMode,
@@ -119,7 +119,7 @@ impl AssemblyInstruction {
 }
 
 // オペランドの値を表現する列挙型
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OperandValue {
     None,                    // 値なし
     Byte(u8),                // 8ビット値
@@ -129,10 +129,6 @@ pub enum OperandValue {
 }
 
 impl OperandValue {
-    pub fn byte(value: u8) -> Self {
-        Self::Byte(value)
-    }
-
     pub fn unresolved_label(name: &str) -> Self {
         Self::UnresolvedLabel(name.to_string())
     }
