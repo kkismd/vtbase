@@ -1,5 +1,6 @@
+pub mod pseudo_commands;
+
 use crate::opcode;
-use crate::parser::expression::Expr;
 use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
@@ -37,12 +38,12 @@ impl Assembler {
     }
 
     pub fn assemble(&mut self, instructions: &mut Vec<Instruction>) -> Result<u16, AssemblyError> {
-        self.assemble_pass1(instructions)?;
-        let obj_size = self.assemble_pass2(instructions)?;
+        self.pass1(instructions)?;
+        let obj_size = self.pass2(instructions)?;
         Ok(obj_size)
     }
 
-    fn assemble_pass1(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
+    fn pass1(&mut self, instructions: &mut Vec<Instruction>) -> Result<(), AssemblyError> {
         for instruction in instructions {
             // eprintln!("pc = {:04x}, statement = {:?}", self.pc, instruction);
             self.pass1_instruction(instruction).map_err(|e| {
@@ -61,16 +62,13 @@ impl Assembler {
                 self.pseudo_command_pass1(instruction, statement)?;
                 continue;
             }
-            let assymbly_instruction = statement.decode(&self.labels)?;
-            let len = assymbly_instruction.addressing_mode.length();
+            let assembly_instruction = statement.decode(&self.labels)?;
+            let len = assembly_instruction.addressing_mode.length();
             self.pc += len as u16;
         })
     }
 
-    fn assemble_pass2(
-        &mut self,
-        instructions: &mut Vec<Instruction>,
-    ) -> Result<u16, AssemblyError> {
+    fn pass2(&mut self, instructions: &mut Vec<Instruction>) -> Result<u16, AssemblyError> {
         self.current_label = String::new();
         let mut objects_size = 0;
         for instruction in instructions {
@@ -146,7 +144,7 @@ impl Assembler {
         }
     }
 
-    fn dump_objects(objects: &Vec<u8>) -> String {
+    fn _dump_objects(objects: &Vec<u8>) -> String {
         objects
             .iter()
             .map(|n| format!("{:02X}", n))
@@ -159,99 +157,17 @@ impl Assembler {
         instruction: &Instruction,
         statement: &Statement,
     ) -> Result<(), AssemblyError> {
-        let command = statement.command()?;
-        if command == "*" {
-            self.pass1_command_start_address(statement)
-        } else if command == ":" {
-            self.pass1_command_label_def(instruction, statement)
-        } else if command == "?" {
-            self.pass1_command_data_def(statement)
-        } else {
-            Ok(())
-        }
+        pseudo_commands::pass1(
+            instruction,
+            statement,
+            &mut self.labels,
+            &mut self.pc,
+            &mut self.origin,
+        )
     }
 
-    fn pass1_command_label_def(
-        &mut self,
-        instruction: &Instruction,
-        statement: &Statement,
-    ) -> Result<(), AssemblyError> {
-        // label def
-        let label_name = instruction
-            .label
-            .clone()
-            .ok_or(AssemblyError::program("label def need label"))?;
-        // fetch label entry
-        let label_entry = self
-            .labels
-            .get_mut(&label_name)
-            .ok_or(AssemblyError::program("label not found"))?;
-        // set address to entry
-        if let Expr::WordNum(address) = statement.expression {
-            label_entry.address = Address::Full(address);
-        } else if let Expr::ByteNum(address) = statement.expression {
-            label_entry.address = Address::ZeroPage(address as u8);
-        }
-        Ok(())
-    }
-
-    fn pass1_command_data_def(&mut self, statement: &Statement) -> Result<(), AssemblyError> {
-        let values = statement.expression.traverse_comma();
-        for value in values {
-            self.pc += match value {
-                Expr::ByteNum(_) => 1,
-                Expr::WordNum(_) => 2,
-                Expr::DecimalNum(_) => 1,
-                Expr::StringLiteral(ref s) => s.len() as u16,
-                _ => 0,
-            }
-        }
-        Ok(())
-    }
-
-    fn pass1_command_start_address(&mut self, statement: &Statement) -> Result<(), AssemblyError> {
-        if let Expr::WordNum(address) = statement.expression {
-            self.origin = address;
-            self.pc = address;
-        }
-        Ok(())
-    }
     fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
-        let command = statement.command()?;
-        let expression = &statement.expression;
-        if command == "?" {
-            let mut objects = Vec::new();
-            let values = expression.traverse_comma();
-            for value in values {
-                match value {
-                    Expr::DecimalNum(num) => {
-                        objects.push(num as u8);
-                        self.pc += 1;
-                    }
-                    Expr::ByteNum(num) => {
-                        objects.push(num);
-                        self.pc += 1;
-                    }
-                    Expr::WordNum(num) => {
-                        objects.push((num & 0xff) as u8);
-                        objects.push((num >> 8) as u8);
-                        self.pc += 2;
-                    }
-                    Expr::StringLiteral(ref s) => {
-                        for c in s.chars() {
-                            objects.push(c as u8);
-                        }
-                        self.pc += s.len() as u16;
-                    }
-                    _ => {
-                        dbg!(statement);
-                        return Err(AssemblyError::program("invalid pseudo command"));
-                    }
-                }
-            }
-            return Ok(objects);
-        }
-        return Ok(Vec::new());
+        pseudo_commands::pass2(statement)
     }
 
     fn add_label(&mut self, name: &str, line: usize, address: u16) {
@@ -261,17 +177,5 @@ impl Assembler {
             address: Address::Full(address),
         };
         self.labels.insert(name.to_string(), entry);
-    }
-
-    fn lookup_label_mut(&mut self, name: &str) -> Result<&mut LabelEntry, AssemblyError> {
-        self.labels
-            .get_mut(name)
-            .ok_or(AssemblyError::label_not_found(name))
-    }
-
-    fn lookup_label(&self, name: &str) -> Result<&LabelEntry, AssemblyError> {
-        self.labels
-            .get(name)
-            .ok_or(AssemblyError::label_not_found(name))
     }
 }

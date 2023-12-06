@@ -310,10 +310,7 @@ fn transform_adc_statement(expr: &Expr) -> Vec<Statement> {
     result
 }
 
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 

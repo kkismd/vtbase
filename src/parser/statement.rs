@@ -36,10 +36,9 @@ impl Statement {
 
     pub fn is_pseudo(&self) -> bool {
         if let Ok(command) = self.command() {
-            return command == "*" || command == ":" || command == "?";
-        } else {
-            false
+            return ["*", ":", "?", "%"].contains(&command.as_str());
         }
+        false
     }
 
     // ;=記号,式 の場合はマクロではない

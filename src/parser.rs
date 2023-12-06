@@ -48,12 +48,6 @@ impl Instruction {
             object_codes: vec![],
         }
     }
-
-    pub fn label_name(&self) -> Result<String, AssemblyError> {
-        self.label
-            .clone()
-            .ok_or(AssemblyError::syntax("label not defined"))
-    }
 }
 
 // make abstract syntax tree from input file
