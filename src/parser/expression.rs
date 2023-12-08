@@ -123,6 +123,25 @@ impl Expr {
             _ => Err(AssemblyError::program("invalid label address")),
         }
     }
+
+    pub fn calculate_pass1(
+        self: &Expr,
+        labels: &mut HashMap<String, LabelEntry>,
+    ) -> Result<Address, AssemblyError> {
+        match self {
+            Expr::Parenthesized(expr) => expr.calculate_pass1(labels),
+            Expr::BinOp(left, op, right) => {
+                left.calculate_pass1(labels)?;
+                right.calculate_pass1(labels)?;
+                left.calculate_with(&right, op)
+            }
+            Expr::Identifier(name) => Ok(Address::ZeroPage(0)),
+            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
+            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
+            Expr::WordNum(n) => Ok(Address::Full(*n)),
+            _ => Err(AssemblyError::program("invalid label address")),
+        }
+    }
 }
 
 fn parse_expr(input: &str) -> IResult<&str, Expr> {
