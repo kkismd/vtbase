@@ -18,32 +18,13 @@ pub fn decode_x(
     labels: &HashMap<String, LabelEntry>,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        // X=$12
         .and_then(|num| ok_byte(&LDX, Immediate, num))
-        .or_else(|_| {
-            // X=(label), X=(31), X=($1F)
-            zeropage(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPage, num))
-        })
-        .or_else(|_| {
-            // X=(label+Y), X=(31+Y), X=($1F+Y)
-            zeropage_y(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPageY, num))
-        })
-        .or_else(|_| {
-            // X=(label), X=(4863), X=($12FF)
-            absolute(expr, labels).and_then(|num| ok_word(&LDX, Absolute, num))
-        })
-        .or_else(|_| {
-            // X=(label+Y), X=(4863+Y), X=($12FF+Y)
-            absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num))
-        })
-        .or_else(|_| {
-            // X=X+1, X=+
-            increment(expr, "X").and_then(|_| ok_none(&INX, Implied))
-        })
-        .or_else(|_| {
-            // X=X-1, X=-
-            decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied))
-        })
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPage, num)))
+        .or_else(|_| zeropage_y(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPageY, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LDX, Absolute, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num)))
+        .or_else(|_| increment(expr, "X").and_then(|_| ok_none(&INX, Implied)))
+        .or_else(|_| decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -465,21 +446,43 @@ pub fn bracketed_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, Assemb
  */
 pub fn immediate(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
     num8bit(expr)
-        .and_then(|num| Ok(num))
-        .or_else(|_| zeropage_label(expr, labels))
+        .or_else(|_| zeropage(expr, labels))
         .or_else(|_| hi_label(expr, labels))
         .or_else(|_| lo_label(expr, labels))
         .or_else(|_| decode_error(expr))
 }
 
+fn zeropage_addr(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+    expr.calculate_address(labels)
+        .and_then(|addr| match addr {
+            Address::ZeroPage(addr) => Ok(addr),
+            _ => decode_error(&expr),
+        })
+        .or_else(|_| decode_error(expr))
+}
+
+fn zeropage_unresolved_label(expr: &Expr) -> Result<u8, AssemblyError> {
+    identifier(expr).and_then(|_| Ok(0))
+}
+
+fn full_addr(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+    expr.calculate_address(labels)
+        .and_then(|addr| match addr {
+            Address::Full(addr) => Ok(addr),
+            _ => decode_error(&expr),
+        })
+        .or_else(|_| decode_error(expr))
+}
+
+fn full_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+    identifier(expr).and_then(|_| full_addr(expr, labels).or_else(|_| Ok(0)))
+}
+
 fn hi_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
     hi(expr).and_then(|label| {
-        identifier(&label).and_then(|name| {
-            lookup(&name, labels)
-                .and_then(|entry| match entry.address {
-                    Address::Full(addr) => Ok((addr >> 8) as u8),
-                    _ => decode_error(expr),
-                })
+        identifier(&label).and_then(|_| {
+            full_label(&label, labels)
+                .and_then(|addr| Ok(((addr >> 8) & 0xff) as u8))
                 .or_else(|_| Ok(0 as u8))
         })
     })
@@ -487,172 +490,60 @@ fn hi_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, Ass
 
 fn lo_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
     lo(expr).and_then(|label| {
-        identifier(&label).and_then(|name| {
-            lookup(&name, labels)
-                .and_then(|entry| match entry.address {
-                    Address::Full(addr) => Ok((addr & 0xff) as u8),
-                    _ => decode_error(expr),
-                })
+        identifier(&label).and_then(|_| {
+            full_addr(&label, labels)
+                .and_then(|num| Ok((num & 0xff) as u8))
                 .or_else(|_| Ok(0 as u8))
         })
     })
-}
-
-fn lookup(name: &str, labels: &HashMap<String, LabelEntry>) -> Result<LabelEntry, AssemblyError> {
-    labels
-        .get(name)
-        .cloned()
-        .ok_or(AssemblyError::label_not_found(name))
 }
 
 /**
  * A=($1F) or A=(31) or A=(label)
  */
 pub fn zeropage(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-    parenthesized_within::<u8>(expr, num8bit)
-        // A=($1F) or A=(31)
-        .and_then(|num| Ok(num))
-        .or_else(|_| parenthesized(expr).and_then(|expr| zeropage_label(&expr, labels)))
-}
-
-fn zeropage_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-    offset_zeropage_label(expr, labels).or_else(|_| normal_zeropage_label(expr, labels))
-}
-
-fn normal_zeropage_label(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<u8, AssemblyError> {
-    identifier(expr).and_then(|name| {
-        lookup(&name, labels).and_then(|entry| match entry.address {
-            Address::ZeroPage(addr) => Ok(addr),
-            _ => decode_error(expr),
-        })
-    })
-}
-
-fn offset_zeropage_label(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<u8, AssemblyError> {
-    plus(expr).and_then(|(left, right)| {
-        normal_zeropage_label(&left, labels)
-            .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u8)))
-    })
+    parenthesized(expr)
+        .and_then(|expr| zeropage_addr(&expr, labels).or_else(|_| zeropage_unresolved_label(&expr)))
 }
 
 pub fn absolute(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    parenthesized_within::<u16>(expr, num16bit)
-        // A=($1F) or A=(31)
-        .and_then(|num| Ok(num))
-        .or_else(|_| parenthesized(expr).and_then(|expr| absolute_label(&expr, labels)))
-}
-
-fn absolute_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    offset_label(expr, labels).or_else(|_| full_label(expr, labels))
-}
-
-fn full_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    identifier(expr).and_then(|name| {
-        lookup(&name, labels)
-            .and_then(|entry| match entry.address {
-                Address::Full(addr) => Ok(addr),
-                _ => decode_error(expr),
-            })
-            .or_else(|_| Ok(0 as u16))
-    })
-}
-
-// label+123
-fn offset_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    plus(expr).and_then(|(left, right)| {
-        full_label(&left, labels)
-            .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u16)))
-    })
+    parenthesized(expr).and_then(|expr| full_label(&expr, labels))
 }
 
 /**
  * X=($1F+Y) or X=(31+Y) or X=(label+Y)
  */
 pub fn zeropage_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-    parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right)
-            .and_then(|_| {
-                // X=($1F+Y) or X=(31+Y)
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
-                    // X=(label+Y)
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-    })
+    parenthesized_within(expr, plus)
+        .and_then(|(left, right)| register_y(&right).and_then(|_| zeropage(&left, labels)))
 }
 
 pub fn zeropage_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-    parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // X=($1F+X) or X=(31+X)
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
-                    // X=(label+X)
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-    })
+    parenthesized_within(expr, plus)
+        .and_then(|(left, right)| register_x(&right).and_then(|_| zeropage(&left, labels)))
 }
 
 pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right)
-            .and_then(|_| {
-                // X=($12FF+Y) or X=(311+Y)
-                num16bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
-                    // X=(label+Y)
-                    absolute_label(&left, labels).and_then(|addr| Ok(addr)))
-    })
+    parenthesized_within(expr, plus)
+        .and_then(|(left, right)| register_y(&right).and_then(|_| full_label(&left, labels)))
 }
 
 pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
-    parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // X=($12FF+X) or X=(311+X)
-                num16bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
-                    // X=(label+X)
-                    absolute_label(&left, labels).and_then(|addr| Ok(addr)))
-    })
+    parenthesized_within(expr, plus)
+        .and_then(|(left, right)| register_x(&right).and_then(|_| full_label(&left, labels)))
 }
 
 // Indirect,X    LDA ($44,X)   A=[$44+X]
 pub fn indirect_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
-    bracketed_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // A=[$1F+X] or A=[31+X]
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
-                    // A=[label+X]
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-    })
+    bracketed_within(expr, plus)
+        .and_then(|(left, right)| register_x(&right).and_then(|_| zeropage_addr(&left, labels)))
 }
 
 // Indirect,Y    LDA ($44),Y   A=[$44]+Y, A=[44]+Y, A=[label]+Y
 pub fn indirect_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
     plus(expr).and_then(|(ref left, ref right)| {
-        // A=[$1F]+Y or A=[31]+Y
-        register_y(right).and_then(|_| {
-            bracketed(left).and_then(|num| {
-                // A=[$1F]+Y
-                num8bit(&num).and_then(|addr| Ok(addr)).or_else(|_| {
-                    // A=[31]+Y
-                    zeropage_label(&num, labels).and_then(|addr| Ok(addr))
-                })
-            })
-        })
+        register_y(right)
+            .and_then(|_| bracketed(left).and_then(|addr| zeropage_addr(&addr, labels)))
     })
 }
 

@@ -6,10 +6,13 @@ CONINIT :=$FD1B
 CONOUT  :=$FD39
 UNIMON  :=$F600
 
+;; Bit Flags
+MINUS   :=%10000000
+
 ;; Zero page variables
 TMP1    :=$10
 PTR1    :=$12                   ;; ポインタ
-PTR1_H  :=$13
+PTR1_H  :=PTR1+1
 
         *=$D000                 ;;      ORG $D000
 
@@ -45,6 +48,7 @@ loop    A=(hello+X)             ;;      LDA hello,X
                                 ;;      JMP .macro1_do
                                 ;; .macro1_do_next
         !=newline
+        A=TMP1|MINUS            ;;      LDA $10 | #%10000000
 
 
 stop    #=UNIMON                ;;      JMP UNIMON
@@ -65,3 +69,4 @@ newline
         #=!
 
 hello   ?="HELLO, WORLD.",0     ;;      !text "HELLO, WORLD."
+;;data    %=12,$FF                ;;      

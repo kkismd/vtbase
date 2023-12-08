@@ -1,6 +1,7 @@
 pub mod pseudo_commands;
 
 use crate::opcode;
+use crate::parser::expression::Operator;
 use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Instruction};
 use std::collections::HashMap;
@@ -24,6 +25,64 @@ pub struct LabelEntry {
 pub enum Address {
     Full(u16),
     ZeroPage(u8),
+}
+
+impl Address {
+    pub fn calculate_with(&self, other: &Address, op: &Operator) -> Result<Self, AssemblyError> {
+        match self {
+            Address::Full(n) => {
+                if let Address::Full(m) = other {
+                    Ok(Address::Full(match op {
+                        Operator::Add => n + m,
+                        Operator::Sub => n - m,
+                        Operator::Mul => n * m,
+                        Operator::Div => n / m,
+                        Operator::And => n & m,
+                        Operator::Or => n | m,
+                        Operator::Xor => n ^ m,
+                        _ => return self.type_error(other, &op.to_string()),
+                    }))
+                } else if let Address::ZeroPage(m) = other {
+                    // FullとZeroPageの演算は、Fullとして計算する
+                    Ok(Address::Full(match op {
+                        Operator::Add => n + (*m as u16),
+                        Operator::Sub => n - (*m as u16),
+                        Operator::Mul => n * (*m as u16),
+                        Operator::Div => n / (*m as u16),
+                        Operator::And => n & (*m as u16),
+                        Operator::Or => n | (*m as u16),
+                        Operator::Xor => n ^ (*m as u16),
+                        _ => return self.type_error(other, &op.to_string()),
+                    }))
+                } else {
+                    self.type_error(&other, &op.to_string())
+                }
+            }
+            Address::ZeroPage(n) => {
+                if let Address::ZeroPage(m) = other {
+                    Ok(Address::ZeroPage(match op {
+                        Operator::Add => n + m,
+                        Operator::Sub => n - m,
+                        Operator::Mul => n * m,
+                        Operator::Div => n / m,
+                        Operator::And => n & m,
+                        Operator::Or => n | m,
+                        Operator::Xor => n ^ m,
+                        _ => return self.type_error(other, &op.to_string()),
+                    }))
+                } else {
+                    self.type_error(&other, &op.to_string())
+                }
+            }
+        }
+    }
+
+    fn type_error(&self, other: &Address, op: &str) -> Result<Self, AssemblyError> {
+        Err(AssemblyError::expression(&format!(
+            "cannot {} {:?} and {:?}",
+            op, self, other
+        )))
+    }
 }
 
 impl Assembler {
