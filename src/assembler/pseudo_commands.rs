@@ -29,12 +29,13 @@ pub fn pass1(
     }
 }
 
+// label def
 fn pass1_command_label_def(
     instruction: &Instruction,
     statement: &Statement,
     labels: &mut HashMap<String, LabelEntry>,
 ) -> Result<(), AssemblyError> {
-    // label def
+    let address = statement.expression.calculate_address(&labels)?;
     let label_name = instruction
         .label
         .clone()
@@ -44,11 +45,7 @@ fn pass1_command_label_def(
         .get_mut(&label_name)
         .ok_or(AssemblyError::program("label not found"))?;
     // set address to entry
-    if let Expr::WordNum(address) = statement.expression {
-        label_entry.address = Address::Full(address);
-    } else if let Expr::ByteNum(address) = statement.expression {
-        label_entry.address = Address::ZeroPage(address as u8);
-    }
+    label_entry.address = address;
     Ok(())
 }
 

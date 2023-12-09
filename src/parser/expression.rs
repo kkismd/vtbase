@@ -12,10 +12,13 @@ use nom::{
     sequence::{preceded, tuple},
     IResult,
 };
-use std::num::ParseIntError;
 use std::str::FromStr;
+use std::{collections::HashMap, num::ParseIntError};
 
-use crate::error::AssemblyError::{self};
+use crate::{
+    assembler::{Address, LabelEntry},
+    error::AssemblyError::{self},
+};
 
 pub mod matcher;
 
@@ -25,11 +28,33 @@ pub enum Operator {
     Sub,
     Mul,
     Div,
+    And,
+    Or,
+    Xor,
     Comma,
     Greater,
     Less,
     Equal,
     NotEqual,
+}
+
+impl Operator {
+    pub fn to_string(&self) -> String {
+        match self {
+            Operator::Add => "+".to_string(),
+            Operator::Sub => "-".to_string(),
+            Operator::Mul => "*".to_string(),
+            Operator::Div => "/".to_string(),
+            Operator::And => "&".to_string(),
+            Operator::Or => "|".to_string(),
+            Operator::Xor => "^".to_string(),
+            Operator::Comma => ",".to_string(),
+            Operator::Greater => ">".to_string(), // it means '>='
+            Operator::Less => "<".to_string(),
+            Operator::Equal => "=".to_string(),
+            Operator::NotEqual => "\\".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +84,7 @@ impl Expr {
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
                 Err(AssemblyError::expression(&e.to_string()))
             }
-            Err(nom::Err::Incomplete(_)) => Err(AssemblyError::expression("imcomplete imput")),
+            Err(nom::Err::Incomplete(_)) => Err(AssemblyError::expression("incomplete input")),
         }
     }
 
@@ -74,6 +99,30 @@ impl Expr {
             _ => vec![self.clone()],
         }
     }
+
+    pub fn calculate_address(
+        self: &Expr,
+        labels: &HashMap<String, LabelEntry>,
+    ) -> Result<Address, AssemblyError> {
+        match self {
+            Expr::Parenthesized(expr) => expr.calculate_address(labels),
+            Expr::BinOp(left, op, right) => {
+                let left = left.calculate_address(labels)?;
+                let right = right.calculate_address(labels)?;
+                left.calculate_with(&right, op)
+            }
+            Expr::Identifier(name) => {
+                let label_entry = labels
+                    .get(name)
+                    .ok_or(AssemblyError::program("label not found"))?;
+                Ok(label_entry.address.clone())
+            }
+            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
+            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
+            Expr::WordNum(n) => Ok(Address::Full(*n)),
+            _ => Err(AssemblyError::program("invalid label address")),
+        }
+    }
 }
 
 fn parse_expr(input: &str) -> IResult<&str, Expr> {
@@ -81,6 +130,7 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
         parse_bin_op,
         parse_decimal,
         parse_hex,
+        parse_bin,
         parse_char,
         parse_hibyte,
         parse_lobyte,
@@ -96,6 +146,7 @@ fn parse_term(input: &str) -> IResult<&str, Expr> {
     alt((
         parse_decimal,
         parse_hex,
+        parse_bin,
         parse_char,
         parse_hibyte,
         parse_lobyte,
@@ -119,6 +170,9 @@ fn parse_operator(input: &str) -> IResult<&str, Operator> {
         map(tag("-"), |_| Operator::Sub),
         map(tag("*"), |_| Operator::Mul),
         map(tag("/"), |_| Operator::Div),
+        map(tag("&"), |_| Operator::And),
+        map(tag("|"), |_| Operator::Or),
+        map(tag("^"), |_| Operator::Xor),
         map(tag(","), |_| Operator::Comma),
         map(tag(">"), |_| Operator::Greater),
         map(tag("<"), |_| Operator::Less),
@@ -147,6 +201,22 @@ fn parse_hex(input: &str) -> IResult<&str, Expr> {
         nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Char))
     })?;
     if hex_str.len() <= 2 {
+        Ok((input, Expr::ByteNum(num as u8)))
+    } else {
+        Ok((input, Expr::WordNum(num as u16)))
+    }
+}
+
+fn is_bin_digit(c: char) -> bool {
+    c.is_digit(2)
+}
+
+fn parse_bin(input: &str) -> IResult<&str, Expr> {
+    let (input, bin_str) = preceded(tag("%"), take_while_m_n(1, 16, is_bin_digit))(input)?;
+    let num = u32::from_str_radix(bin_str, 2).map_err(|_| {
+        nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Char))
+    })?;
+    if bin_str.len() <= 8 {
         Ok((input, Expr::ByteNum(num as u8)))
     } else {
         Ok((input, Expr::WordNum(num as u16)))

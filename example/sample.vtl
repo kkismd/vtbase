@@ -7,9 +7,9 @@ CONOUT  :=$FD39
 UNIMON  :=$F600
 
 ;; Zero page variables
-TMP1    :=$10
+TMP1    :=$1f&%00010000
 PTR1    :=$12                   ;; ポインタ
-PTR1_H  :=$13
+PTR1_H  :=PTR1+1
 
         *=$D000                 ;;      ORG $D000
 
@@ -25,7 +25,7 @@ PTR1_H  :=$13
 
         ;; ポインタ経由で書き込む -- Hello の2文字目を # で上書き
         A='#'                   ;;      lda #$23
-        Y=1                     ;;      ldx #0
+        Y=1                     ;;      ldy #1
         [PTR1]+Y=A              ;;      sta (PTR1),Y
 
 loop    A=(hello+X)             ;;      LDA hello,X
