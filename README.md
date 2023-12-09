@@ -165,39 +165,39 @@ Note:
 
 ## symbols
 
-| 記号 | command      | expression     | VTL,GAME80                 |
-| ---- | ------------ | -------------- | -------------------------- |
-| !    | JSR          |                |                            |
-| @    | LOOP         |                | LOOP (GAME80)              |
-| #    | JMP or BRA   |                |                            |
-| $    | バイトデータ |                |                            |
-| &    | データ領域   | AND            | High memory (VTL)          |
-| *    | ORG          |                | 乗算 / Low memory (VTL)    |
-| (    | ローテート左 | 括弧           |                            |
-| )    | ローテート右 |                | コメント (VTL)             |
-| [    | PUSH         | 論理シフト左   |                            |
-| ]    | POP          | 論理シフト右   | RETURN (GAME80)            |
-| <    | 論理シフト左 | 小なり         | File出力 or ポインタ (VTL) |
-| >    | 論理シフト右 | 大なりイコール | File入力 (VTL)             |
-| /    |              | 除算           | 改行 (GAME80)              |
-| ?    | 文字列データ |                |                            |
-| :    | EQL          | ELSE           | 配列 (VTL)                 |
-| ;    | IF           | ;; コメント    |                            |
-| %    |              |                | 剰余(VTL, GAME80)          |
-| ^    | RTS          | XOR            |                            |
-| ｜   |              | OR             |                            |
-| ｀   |              |                |                            |
-| _    | NOP          |                |                            |
-| -    |              | 減算           |                            |
-| +    |              | 加算           |                            |
-| =    |              | 等号           |                            |
-| \    |              | 不等号         |                            |
-| ,    |              | COMMA          |                            |
-| .    |              |                | タブ出力                   |
-| '    |              | CHAR           | 乱数                       |
-| "    |              | 文字列         | PRINT GAME80               |
-| {    |              | ローテート左   |                            |
-| }    |              | ローテート右   |                            |
-| ~    | RTI          | 不等号         |                            |
+| 記号 | command      | expression     | VTL,GAME80                  |
+| ---- | ------------ | -------------- | --------------------------- |
+| !    | JSR          |                |                             |
+| @    | LOOP         |                | LOOP (GAME80)               |
+| #    | JMP or BRA   |                |                             |
+| $    | DATA Fill    |                | print ascii code            |
+| &    |              | AND            | High memory (VTL)           |
+| *    | ORG          | current addr   | multiply / Low memory (VTL) |
+| (    | ローテート左 | 括弧           |                             |
+| )    | ローテート右 |                | comment (VTL)               |
+| [    | PUSH         | 論理シフト左   |                             |
+| ]    | POP          | 論理シフト右   | RETURN (GAME80)             |
+| <    | 論理シフト左 | 小なり         | File出力 or ポインタ (VTL)  |
+| >    | 論理シフト右 | 大なりイコール | File入力 (VTL)              |
+| /    |              | 除算           | newline (GAME80)            |
+| ?    | データ文     |                | print string                |
+| :    | EQL          | ELSE           | Array (VTL)                 |
+| ;    | IF           | ;; コメント    |                             |
+| %    |              |                | mod (VTL, GAME80)           |
+| ^    | RTS          | XOR            |                             |
+| ｜   |              | OR             |                             |
+| ｀   |              |                |                             |
+| _    | NOP          |                |                             |
+| -    |              | 減算           |                             |
+| +    |              | 加算           |                             |
+| =    |              | 等号           |                             |
+| \    |              | 不等号         |                             |
+| ,    |              | COMMA          |                             |
+| .    |              |                | タブ出力                    |
+| '    |              | CHAR           | random number generator     |
+| "    |              | 文字列         | PRINT GAME80                |
+| {    |              | ローテート左   |                             |
+| }    |              | ローテート右   |                             |
+| ~    | RTI          | 不等号         |                             |
 
 

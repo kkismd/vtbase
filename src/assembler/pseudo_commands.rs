@@ -1,4 +1,4 @@
-use crate::parser::expression::Expr;
+use crate::parser::expression::{Expr, Operator};
 use crate::Instruction;
 
 use super::*;
@@ -20,6 +20,9 @@ pub fn pass1(
         pass1_command_label_def(instruction, statement, labels)
     } else if command == "?" {
         *pc = pass1_command_data_def(statement)?;
+        Ok(())
+    } else if command == "$" {
+        *pc = pass1_command_data_fill(statement)?;
         Ok(())
     } else {
         Ok(())
@@ -64,6 +67,22 @@ fn pass1_command_data_def(statement: &Statement) -> Result<u16, AssemblyError> {
     Ok(pc)
 }
 
+// %=$FF,12 -> fill 12 bytes with data $FF
+fn pass1_command_data_fill(statement: &Statement) -> Result<u16, AssemblyError> {
+    let expr = &statement.expression;
+    match expr {
+        Expr::BinOp(left, Operator::Comma, right) => {
+            if let Expr::ByteNum(_) = **left {
+                if let Expr::DecimalNum(fill_count) = **right {
+                    return Ok(fill_count as u16);
+                }
+            }
+        }
+        _ => (),
+    }
+    Err(AssemblyError::program("invalid fill command"))
+}
+
 fn pass1_command_start_address(statement: &Statement) -> Result<u16, AssemblyError> {
     if let Expr::WordNum(address) = statement.expression {
         return Ok(address);
@@ -75,6 +94,8 @@ pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
     let expression = &statement.expression;
     if command == "?" {
         return pass2_command_data_def(expression, statement);
+    } else if command == "$" {
+        return pass2_command_data_fill(statement);
     }
     return Ok(Vec::new());
 }
@@ -109,4 +130,74 @@ fn pass2_command_data_def(
         }
     }
     Ok(objects)
+}
+
+// %=$FF,12 -> fill 12 bytes with data $FF
+fn pass2_command_data_fill(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+    let expr = &statement.expression;
+    let mut objects = Vec::new();
+    match expr {
+        Expr::BinOp(left, Operator::Comma, right) => {
+            if let Expr::ByteNum(fill_value) = **left {
+                if let Expr::DecimalNum(fill_count) = **right {
+                    for _ in 0..fill_count {
+                        objects.push(fill_value);
+                    }
+                    return Ok(objects);
+                }
+            }
+        }
+        _ => (),
+    }
+    dbg!(statement);
+    return Err(AssemblyError::program("invalid fill command"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pass1_command_data_fill() {
+        let statement = Statement::new(
+            "$",
+            Expr::BinOp(
+                Box::new(Expr::ByteNum(0xff)),
+                Operator::Comma,
+                Box::new(Expr::DecimalNum(12)),
+            ),
+        );
+        let mut labels = HashMap::new();
+        let mut pc = 0;
+        let mut origin = 0;
+        let statement_clone = statement.clone();
+        let result = pass1(
+            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &statement_clone,
+            &mut labels,
+            &mut pc,
+            &mut origin,
+        );
+        assert!(result.is_ok());
+        assert_eq!(pc, 12);
+    }
+
+    #[test]
+    fn test_pass2_command_data_fill() {
+        let statement = Statement::new(
+            "$",
+            Expr::BinOp(
+                Box::new(Expr::ByteNum(0xff)),
+                Operator::Comma,
+                Box::new(Expr::DecimalNum(12)),
+            ),
+        );
+        let result = pass2(&statement);
+        assert!(result.is_ok());
+        let objects = result.unwrap();
+        assert_eq!(objects.len(), 12);
+        for i in 0..12 {
+            assert_eq!(objects[i], 0xff);
+        }
+    }
 }
