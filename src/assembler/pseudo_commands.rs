@@ -77,6 +77,11 @@ fn pass1_command_data_fill(statement: &Statement) -> Result<u16, AssemblyError> 
                     return Ok(fill_count as u16);
                 }
             }
+            if let Expr::WordNum(_) = **left {
+                if let Expr::DecimalNum(fill_count) = **right {
+                    return Ok((fill_count * 2) as u16);
+                }
+            }
         }
         _ => (),
     }
@@ -138,10 +143,17 @@ fn pass2_command_data_fill(statement: &Statement) -> Result<Vec<u8>, AssemblyErr
     let mut objects = Vec::new();
     match expr {
         Expr::BinOp(left, Operator::Comma, right) => {
-            if let Expr::ByteNum(fill_value) = **left {
-                if let Expr::DecimalNum(fill_count) = **right {
+            if let Expr::DecimalNum(fill_count) = **right {
+                if let Expr::ByteNum(fill_value) = **left {
                     for _ in 0..fill_count {
                         objects.push(fill_value);
+                    }
+                    return Ok(objects);
+                }
+                if let Expr::WordNum(fill_value) = **left {
+                    for _ in 0..fill_count {
+                        objects.push((fill_value & 0xff) as u8);
+                        objects.push((fill_value >> 8) as u8);
                     }
                     return Ok(objects);
                 }
@@ -196,8 +208,55 @@ mod tests {
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12);
+        assert_eq!(objects[0], 0xff);
+    }
+
+    #[test]
+    fn test_pass1_command_data_fill_word() {
+        let statement = Statement::new(
+            "$",
+            Expr::BinOp(
+                Box::new(Expr::WordNum(0xff00)),
+                Operator::Comma,
+                Box::new(Expr::DecimalNum(12)),
+            ),
+        );
+        let mut labels = HashMap::new();
+        let mut pc = 0;
+        let mut origin = 0;
+        let statement_clone = statement.clone();
+        let result = pass1(
+            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &statement_clone,
+            &mut labels,
+            &mut pc,
+            &mut origin,
+        );
+        assert!(result.is_ok());
+        assert_eq!(pc, 12 * 2);
+    }
+
+    #[test]
+    fn test_pass2_command_data_fill_word() {
+        let statement = Statement::new(
+            "$",
+            Expr::BinOp(
+                Box::new(Expr::WordNum(0x1234)),
+                Operator::Comma,
+                Box::new(Expr::DecimalNum(12)),
+            ),
+        );
+        let result = pass2(&statement);
+        assert!(result.is_ok());
+        let objects = result.unwrap();
+        assert_eq!(objects.len(), 12 * 2);
+
+        assert_eq!(objects[0], 0x34);
+        assert_eq!(objects[1], 0x12);
+
         for i in 0..12 {
-            assert_eq!(objects[i], 0xff);
+            assert_eq!(objects[i * 2], 0x34);
+            assert_eq!(objects[i * 2 + 1], 0x12);
         }
     }
 }

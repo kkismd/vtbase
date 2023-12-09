@@ -36,7 +36,7 @@ impl Statement {
 
     pub fn is_pseudo(&self) -> bool {
         if let Ok(command) = self.command() {
-            return ["*", ":", "?", "%"].contains(&command.as_str());
+            return ["*", ":", "?", "$"].contains(&command.as_str());
         }
         false
     }
