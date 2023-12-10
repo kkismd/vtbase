@@ -3,33 +3,30 @@ use crate::{
     parser::{
         expression::{Expr, Operator},
         statement::Statement,
-        Instruction,
+        Line,
     },
 };
 
-pub fn expand(instructions: &Vec<Instruction>) -> Result<Vec<Instruction>, AssemblyError> {
+pub fn expand(lines: &Vec<Line>) -> Result<Vec<Line>, AssemblyError> {
     let mut result = Vec::new();
     let mut stack = Vec::new();
-    for instruction in instructions {
-        let instructions = transform_instruction(instruction, &mut stack)?;
-        result.extend(instructions);
+    for line in lines {
+        let lines = transform_line(line, &mut stack)?;
+        result.extend(lines);
     }
     Ok(result)
 }
 
-fn transform_instruction(
-    instruction: &Instruction,
-    stack: &mut Vec<String>,
-) -> Result<Vec<Instruction>, AssemblyError> {
-    if instruction.statements.len() == 0 {
-        return Ok(vec![instruction.clone()]);
+fn transform_line(line: &Line, stack: &mut Vec<String>) -> Result<Vec<Line>, AssemblyError> {
+    if line.statements.len() == 0 {
+        return Ok(vec![line.clone()]);
     }
-    let statement = &instruction.statements[0];
+    let statement = &line.statements[0];
     let command = statement.command()?;
     match command.as_str() {
-        ";" => transform_if_statement(instruction),
-        "@" => transform_do_statement(instruction, stack),
-        _ => transform_statements(&instruction),
+        ";" => transform_if_statement(line),
+        "@" => transform_do_statement(line, stack),
+        _ => transform_statements(&line),
     }
 }
 
@@ -46,30 +43,27 @@ fn transform_instruction(
  *      A=A+1 Y=Y+1
  *  #macro_0.1
  */
-fn transform_if_statement(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
-    if !(&instruction.statements[0]).check_macro_if_statement() {
-        return Ok(vec![instruction.clone()]);
+fn transform_if_statement(line: &Line) -> Result<Vec<Line>, AssemblyError> {
+    if !(&line.statements[0]).check_macro_if_statement() {
+        return Ok(vec![line.clone()]);
     }
 
     let mut result = vec![];
     let label = generate_macro_identifier();
-    let header = instruction.new_label(&label);
+    let header = line.new_label(&label);
     let trailer_label = format!("{}.1", label);
-    let tlaier = instruction.new_label(&trailer_label);
+    let trailer = line.new_label(&trailer_label);
     result.push(header);
-    let instructions = expand_if_statement(instruction, &trailer_label)?;
-    result.extend(instructions);
-    result.push(tlaier);
+    let lines = expand_if_statement(line, &trailer_label)?;
+    result.extend(lines);
+    result.push(trailer);
     // dbg!(&result);
     Ok(result)
 }
 
-fn expand_if_statement(
-    instruction: &Instruction,
-    macro_label: &str,
-) -> Result<Vec<Instruction>, AssemblyError> {
+fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, AssemblyError> {
     let mut result = vec![];
-    let if_stmt = &instruction.statements[0];
+    let if_stmt = &line.statements[0];
     let cmd = if_stmt.command()?;
     let expr = &if_stmt.expression;
     if cmd != ";" {
@@ -79,13 +73,7 @@ fn expand_if_statement(
         // 1st line
         // T=X-10
         let stmt1 = Statement::new("T", Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()));
-        let inst1 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            vec![stmt1],
-            vec![],
-        );
+        let inst1 = Line::new(line.line_number, line.address, None, vec![stmt1], vec![]);
         result.push(inst1);
 
         // 2nd line
@@ -99,7 +87,7 @@ fn expand_if_statement(
             _ => {
                 return Err(AssemblyError::MacroError(format!(
                     "{:?} expand_if_statement() invalid operator {:?}",
-                    instruction, op
+                    line, op
                 )))
             }
         };
@@ -107,27 +95,21 @@ fn expand_if_statement(
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
         let stmt2 = Statement::new(";", expr2);
-        let inst2 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            vec![stmt2],
-            vec![],
-        );
+        let inst2 = Line::new(line.line_number, line.address, None, vec![stmt2], vec![]);
         result.push(inst2);
 
         // 3rd line
         // A=A+1 Y=Y+1
-        let then_statements = instruction.statements[1..].to_vec();
+        let then_statements = line.statements[1..].to_vec();
         let mut expanded_statements = vec![];
         for statement in then_statements {
             let stmt = transform_statement(&statement)?;
             expanded_statements.extend(stmt);
         }
 
-        let inst3 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
+        let inst3 = Line::new(
+            line.line_number,
+            line.address,
             None,
             expanded_statements,
             vec![],
@@ -155,67 +137,46 @@ fn expand_if_statement(
  * #macro_1.1
  */
 fn transform_do_statement(
-    instruction: &Instruction,
+    line: &Line,
     stack: &mut Vec<String>,
-) -> Result<Vec<Instruction>, AssemblyError> {
+) -> Result<Vec<Line>, AssemblyError> {
     let mut result = vec![];
-    let statement = &instruction.statements[0];
+    let statement = &line.statements[0];
     if statement.expression == Expr::Empty {
         // ループ開始行 @ の処理
         let label = generate_macro_identifier();
         stack.push(label.clone());
-        let line = instruction.new_label(&label);
-        result.push(line);
-        let rest = instruction.statements[1..].to_vec();
-        let rest_instruction = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            rest,
-            vec![],
-        );
-        result.push(rest_instruction);
+        let label_line = line.new_label(&label);
+        result.push(label_line);
+        let rest = line.statements[1..].to_vec();
+        let rest_line = Line::new(line.line_number, line.address, None, rest, vec![]);
+        result.push(rest_line);
     } else {
         // ループ終了行 @=X>10 の処理
         let label = stack
             .pop()
             .ok_or(AssemblyError::MacroError(format!("unmatch do loop")))?;
-        let instructions = expand_do_statement(instruction, &label)?;
-        result.extend(instructions);
-        let stmts = &instruction.statements[1..];
-        let rest_instruction = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            stmts.to_vec(),
-            vec![],
-        );
-        result.push(rest_instruction);
+        let lines = expand_do_statement(line, &label)?;
+        result.extend(lines);
+        let stmts = &line.statements[1..];
+        let rest_line = Line::new(line.line_number, line.address, None, stmts.to_vec(), vec![]);
+        result.push(rest_line);
     }
     // dbg!(&result);
     Ok(result)
 }
 
-fn expand_do_statement(
-    instruction: &Instruction,
-    label: &str,
-) -> Result<Vec<Instruction>, AssemblyError> {
+fn expand_do_statement(line: &Line, label: &str) -> Result<Vec<Line>, AssemblyError> {
     let mut result = vec![];
     let Statement {
         command: _,
         expression: expr,
-    } = &instruction.statements[0];
+    } = &line.statements[0];
     if let Expr::BinOp(lhs, op, rhs) = expr {
         // 1st line
         // T=X-10
         let stmt1 = Statement::new("T", Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()));
-        let inst1 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            vec![stmt1],
-            vec![],
-        );
+        let inst1 = Line::new(line.line_number, line.address, None, vec![stmt1], vec![]);
         result.push(inst1);
 
         // 2nd line
@@ -238,43 +199,31 @@ fn expand_do_statement(
         let rhs = Box::new(Expr::Identifier(next_label.clone()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
         let stmt2 = Statement::new(";", expr2);
-        let inst2 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            vec![stmt2],
-            vec![],
-        );
+        let inst2 = Line::new(line.line_number, line.address, None, vec![stmt2], vec![]);
         result.push(inst2);
         // 3rd line
         // #=#macro_1
         let stmt3 = Statement::new("#", Expr::Identifier(label.to_string()));
-        let inst3 = Instruction::new(
-            instruction.line_number,
-            instruction.address,
-            None,
-            vec![stmt3],
-            vec![],
-        );
+        let inst3 = Line::new(line.line_number, line.address, None, vec![stmt3], vec![]);
         result.push(inst3);
         // 4th line
         // #macro_1.1
-        let inst4 = instruction.new_label(next_label.as_str());
+        let inst4 = line.new_label(next_label.as_str());
         result.push(inst4);
     }
 
     Ok(result)
 }
 
-fn transform_statements(instruction: &Instruction) -> Result<Vec<Instruction>, AssemblyError> {
-    let statements = &instruction.statements;
+fn transform_statements(line: &Line) -> Result<Vec<Line>, AssemblyError> {
+    let statements = &line.statements;
     let mut result = vec![];
     for statement in statements {
         let transformd_statements = transform_statement(statement)?;
         result.extend(transformd_statements);
     }
 
-    let mut inst = instruction.clone();
+    let mut inst = line.clone();
     inst.statements = result;
     Ok(vec![inst])
 }

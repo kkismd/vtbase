@@ -6,7 +6,7 @@ use crate::parser::expression::Expr;
 pub mod decoder;
 use decoder::*;
 
-// instruction in a line of source code
+// statement in a line of source code
 #[derive(Debug, Clone)]
 pub struct Statement {
     pub command: Expr,

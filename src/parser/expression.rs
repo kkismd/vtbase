@@ -102,21 +102,21 @@ impl Expr {
 
     pub fn calculate_address(self: &Expr, labels: &LabelTable) -> Result<Address, AssemblyError> {
         match self {
-            Expr::Parenthesized(expr) => expr.calculate_address(labels),
-            Expr::BinOp(left, op, right) => {
-                let left = left.calculate_address(labels)?;
-                let right = right.calculate_address(labels)?;
-                left.calculate_with(&right, op)
-            }
+            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
+            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
+            Expr::WordNum(n) => Ok(Address::Full(*n)),
             Expr::Identifier(name) => {
                 let label_entry = labels
                     .get(name)
                     .ok_or(AssemblyError::program("label not found"))?;
                 Ok(label_entry.address.clone())
             }
-            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
-            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
-            Expr::WordNum(n) => Ok(Address::Full(*n)),
+            Expr::BinOp(left, op, right) => {
+                let left = left.calculate_address(labels)?;
+                let right = right.calculate_address(labels)?;
+                left.calculate_with(&right, op)
+            }
+            Expr::Parenthesized(expr) => expr.calculate_address(labels),
             _ => Err(AssemblyError::program("invalid label address")),
         }
     }

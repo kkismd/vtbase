@@ -1,23 +1,23 @@
 use crate::parser::expression::{Expr, Operator};
-use crate::Instruction;
+use crate::Line;
 
 use super::*;
 
 pub fn pass1(
-    instruction: &Instruction,
+    line: &Line,
     statement: &Statement,
     labels: &mut LabelTable,
     pc: &mut u16,
-    origin: &mut u16,
 ) -> Result<(), AssemblyError> {
+    let mut origin = 0;
     let command = statement.command()?;
     if command == "*" {
         let address = pass1_command_start_address(statement)?;
-        *origin = address;
+        origin = address;
         *pc = address;
         Ok(())
     } else if command == ":" {
-        pass1_command_label_def(instruction, statement, labels)
+        pass1_command_label_def(line, statement, labels)
     } else if command == "?" {
         *pc = pass1_command_data_def(statement)?;
         Ok(())
@@ -31,12 +31,12 @@ pub fn pass1(
 
 // label def
 fn pass1_command_label_def(
-    instruction: &Instruction,
+    line: &Line,
     statement: &Statement,
     labels: &mut LabelTable,
 ) -> Result<(), AssemblyError> {
     let address = statement.expression.calculate_address(&labels)?;
-    let label_name = instruction
+    let label_name = line
         .label
         .clone()
         .ok_or(AssemblyError::program("label def need label"))?;
@@ -94,12 +94,22 @@ fn pass1_command_start_address(statement: &Statement) -> Result<u16, AssemblyErr
 pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
     let command = statement.command()?;
     let expression = &statement.expression;
-    if command == "?" {
+    if command == "*" {
+        return pass2_command_origin(expression, statement);
+    } else if command == "?" {
         return pass2_command_data_def(expression, statement);
     } else if command == "$" {
         return pass2_command_data_fill(statement);
     }
     return Ok(Vec::new());
+}
+
+fn pass2_command_origin(
+    expression: &Expr,
+    statement: &Statement,
+) -> Result<Vec<u8>, AssemblyError> {
+    // todo implement
+    Ok(vec![])
 }
 
 fn pass2_command_data_def(
@@ -178,14 +188,12 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut origin = 0;
         let statement_clone = statement.clone();
         let result = pass1(
-            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
-            &mut origin,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12);
@@ -220,14 +228,12 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut origin = 0;
         let statement_clone = statement.clone();
         let result = pass1(
-            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
-            &mut origin,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12 * 2);

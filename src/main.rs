@@ -1,3 +1,4 @@
+use error::AssemblyError;
 use ihex::Record;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -9,7 +10,7 @@ mod error;
 mod opcode;
 mod parser;
 use assembler::Assembler;
-use parser::Instruction;
+use parser::Line;
 
 use structopt::StructOpt;
 
@@ -47,31 +48,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     run(&source_file, object_file, opt)
 }
 
-fn run(sorce_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
-    let instructions = parser::parse_from_file(sorce_file)?;
-    let mut instructions = assembly_macro::expand(&instructions)?;
+fn run(source_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
+    let lines = parser::parse_from_file(source_file)?;
+    let mut lines = assembly_macro::expand(&lines)?;
     let mut assembler = Assembler::new();
-    let obj_size = assembler.assemble(&mut instructions)?;
+    let obj_size = assembler.assemble(&mut lines)?;
     eprintln!("assemble done. objext size = {} bytes", obj_size);
 
     if opt.ihex {
-        output_ihex(output_file, instructions, assembler.origin)
+        output_ihex(output_file, lines, assembler.origin)
     } else {
-        output_bin(output_file, instructions, opt.c64)
+        output_bin(output_file, lines, opt.c64)
     }
 }
 
 fn output_bin(
     output_file: File,
-    instructions: Vec<Instruction>,
+    lines: Vec<Line>,
     c64: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = BufWriter::new(output_file);
     if c64 {
         writer.write(&vec![0x01, 0x08])?;
     }
-    for instruction in instructions {
-        for object_code in instruction.object_codes {
+    for line in lines {
+        for object_code in line.object_codes {
             writer
                 .write(&[object_code])
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
@@ -82,14 +83,15 @@ fn output_bin(
 
 fn output_ihex(
     output_file: File,
-    instructions: Vec<Instruction>,
-    start_address: u16,
+    lines: Vec<Line>,
+    start_address: Option<u16>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut objects = vec![];
-    for instruction in instructions {
-        objects.extend(instruction.object_codes);
+    for line in lines {
+        objects.extend(line.object_codes);
     }
     let mut writer = BufWriter::new(output_file);
+    let start_address = start_address.ok_or(AssemblyError::program("start address"))?;
     let result = render_ihex(objects, start_address)?;
     writer.write_all(result.as_bytes())?;
     Ok(())
