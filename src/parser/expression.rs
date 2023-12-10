@@ -12,11 +12,11 @@ use nom::{
     sequence::{preceded, tuple},
     IResult,
 };
+use std::num::ParseIntError;
 use std::str::FromStr;
-use std::{collections::HashMap, num::ParseIntError};
 
 use crate::{
-    assembler::{Address, LabelEntry},
+    assembler::{Address, LabelTable},
     error::AssemblyError::{self},
 };
 
@@ -100,10 +100,7 @@ impl Expr {
         }
     }
 
-    pub fn calculate_address(
-        self: &Expr,
-        labels: &HashMap<String, LabelEntry>,
-    ) -> Result<Address, AssemblyError> {
+    pub fn calculate_address(self: &Expr, labels: &LabelTable) -> Result<Address, AssemblyError> {
         match self {
             Expr::Parenthesized(expr) => expr.calculate_address(labels),
             Expr::BinOp(left, op, right) => {

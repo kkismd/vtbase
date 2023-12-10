@@ -1,9 +1,8 @@
 use super::expression::Operator;
-use crate::assembler::{Address, LabelEntry};
+use crate::assembler::{Address, LabelTable};
 use crate::error::AssemblyError;
 use crate::opcode::{AddressingMode, AssemblyInstruction, OpcodeTable, OperandValue};
 use crate::parser::expression::Expr;
-use std::collections::HashMap;
 pub mod decoder;
 use decoder::*;
 
@@ -58,10 +57,7 @@ impl Statement {
         false
     }
 
-    pub fn decode(
-        &self,
-        labels: &HashMap<String, LabelEntry>,
-    ) -> Result<AssemblyInstruction, AssemblyError> {
+    pub fn decode(&self, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
         let command = self.command()?;
         let expr = &self.expression;
         match command.as_str() {
@@ -84,7 +80,7 @@ impl Statement {
     pub fn compile(
         &self,
         opcode_table: &OpcodeTable,
-        labels: &HashMap<String, LabelEntry>,
+        labels: &LabelTable,
         current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
@@ -105,7 +101,7 @@ impl Statement {
     fn operand_bytes(
         &self,
         assembly_instruction: &AssemblyInstruction,
-        labels: &HashMap<String, LabelEntry>,
+        labels: &LabelTable,
         current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {
@@ -129,7 +125,7 @@ impl Statement {
         &self,
         name: &str,
         mode: &AddressingMode,
-        labels: &HashMap<String, LabelEntry>,
+        labels: &LabelTable,
         current_label: &str,
         pc: u16,
     ) -> Result<Vec<u8>, AssemblyError> {

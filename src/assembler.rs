@@ -9,7 +9,7 @@ use std::collections::HashMap;
 pub struct Assembler {
     pub origin: u16,
     pub pc: u16,
-    pub labels: HashMap<String, LabelEntry>,
+    pub labels: LabelTable,
     pub opcode_table: opcode::OpcodeTable,
     pub current_label: String,
 }
@@ -20,6 +20,8 @@ pub struct LabelEntry {
     pub line: usize,
     pub address: Address,
 }
+
+pub type LabelTable = HashMap<String, LabelEntry>;
 
 #[derive(Debug, Clone)]
 pub enum Address {

@@ -6,7 +6,7 @@ use super::*;
 pub fn pass1(
     instruction: &Instruction,
     statement: &Statement,
-    labels: &mut HashMap<String, LabelEntry>,
+    labels: &mut LabelTable,
     pc: &mut u16,
     origin: &mut u16,
 ) -> Result<(), AssemblyError> {
@@ -33,7 +33,7 @@ pub fn pass1(
 fn pass1_command_label_def(
     instruction: &Instruction,
     statement: &Statement,
-    labels: &mut HashMap<String, LabelEntry>,
+    labels: &mut LabelTable,
 ) -> Result<(), AssemblyError> {
     let address = statement.expression.calculate_address(&labels)?;
     let label_name = instruction
