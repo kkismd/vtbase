@@ -25,7 +25,7 @@ pub fn pass1(
         }
         Ok(())
     } else if command == "$" {
-        let bytes = pass1_command_data_fill(statement)?;
+        let bytes = pass1_command_data_fill(statement, &labels, pc)?;
         if *is_address_set {
             *pc += bytes;
         }
@@ -71,19 +71,21 @@ fn pass1_command_data_def(statement: &Statement) -> Result<u16, AssemblyError> {
 }
 
 // %=$FF,12 -> fill 12 bytes with data $FF
-fn pass1_command_data_fill(statement: &Statement) -> Result<u16, AssemblyError> {
+fn pass1_command_data_fill(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<u16, AssemblyError> {
     let expr = &statement.expression;
     match expr {
         Expr::BinOp(left, Operator::Comma, right) => {
             if let Expr::ByteNum(_) = **left {
-                if let Expr::DecimalNum(fill_count) = **right {
-                    return Ok(fill_count as u16);
-                }
+                let fill_count = right.evaluate(labels, current_address)?;
+                return Ok(fill_count);
             }
             if let Expr::WordNum(_) = **left {
-                if let Expr::DecimalNum(fill_count) = **right {
-                    return Ok((fill_count * 2) as u16);
-                }
+                let fill_count = right.evaluate(labels, current_address)?;
+                return Ok(fill_count * 2);
             }
         }
         _ => (),
@@ -97,13 +99,17 @@ fn pass1_command_start_address(statement: &Statement) -> Result<u16, AssemblyErr
     }
     Err(AssemblyError::program("invalid start address"))
 }
-pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+pub fn pass2(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<Vec<u8>, AssemblyError> {
     let command = statement.command()?;
     let expression = &statement.expression;
     if command == "?" {
         return pass2_command_data_def(expression, statement);
     } else if command == "$" {
-        return pass2_command_data_fill(statement);
+        return pass2_command_data_fill(statement, labels, current_address);
     }
     return Ok(Vec::new());
 }
@@ -141,25 +147,28 @@ fn pass2_command_data_def(
 }
 
 // %=$FF,12 -> fill 12 bytes with data $FF
-fn pass2_command_data_fill(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+fn pass2_command_data_fill(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<Vec<u8>, AssemblyError> {
     let expr = &statement.expression;
     let mut objects = Vec::new();
     match expr {
         Expr::BinOp(left, Operator::Comma, right) => {
-            if let Expr::DecimalNum(fill_count) = **right {
-                if let Expr::ByteNum(fill_value) = **left {
-                    for _ in 0..fill_count {
-                        objects.push(fill_value);
-                    }
-                    return Ok(objects);
+            let fill_count = right.evaluate(labels, current_address)?;
+            if let Expr::ByteNum(fill_value) = **left {
+                for _ in 0..fill_count {
+                    objects.push(fill_value);
                 }
-                if let Expr::WordNum(fill_value) = **left {
-                    for _ in 0..fill_count {
-                        objects.push((fill_value & 0xff) as u8);
-                        objects.push((fill_value >> 8) as u8);
-                    }
-                    return Ok(objects);
+                return Ok(objects);
+            }
+            if let Expr::WordNum(fill_value) = **left {
+                for _ in 0..fill_count {
+                    objects.push((fill_value & 0xff) as u8);
+                    objects.push((fill_value >> 8) as u8);
                 }
+                return Ok(objects);
             }
         }
         _ => (),
@@ -207,7 +216,9 @@ mod tests {
                 Box::new(Expr::DecimalNum(12)),
             ),
         );
-        let result = pass2(&statement);
+        let labels = HashMap::new();
+        let pc = 0;
+        let result = pass2(&statement, &labels, &pc);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12);
@@ -249,7 +260,9 @@ mod tests {
                 Box::new(Expr::DecimalNum(12)),
             ),
         );
-        let result = pass2(&statement);
+        let labels = HashMap::new();
+        let pc = 0;
+        let result = pass2(&statement, &labels, &pc);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12 * 2);

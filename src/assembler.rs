@@ -135,28 +135,36 @@ impl Assembler {
         self.current_label = String::new();
         let mut objects_size = 0;
         for line in lines {
-            let mut pc = line.address;
-            self.track_global_label(line);
-            for statement in &line.statements {
-                let objects;
-                if statement.is_pseudo() {
-                    objects = self.pseudo_command_pass2(statement)?;
-                } else {
-                    objects = statement.compile(
-                        &self.opcode_table,
-                        &self.labels,
-                        &self.current_label,
-                        pc,
-                    )?;
-                }
-                // let dump = Self::dump_objects(&objects);
-                // eprintln!("{}\t{:?}", dump, statement);
-                pc += objects.len() as u16;
-                objects_size += objects.len() as u16;
-                line.object_codes.extend(objects);
-            }
+            self.pass2_process_line(line, &mut objects_size)
+                .map_err(|e| {
+                    eprintln!("[pass2] line = {:?}, error = {}", line, e.message());
+                    e
+                })?;
         }
         Ok(objects_size)
+    }
+
+    fn pass2_process_line(
+        &mut self,
+        line: &mut Line,
+        objects_size: &mut u16,
+    ) -> Result<(), AssemblyError> {
+        let mut pc = line.address;
+        self.track_global_label(line);
+        Ok(for statement in &line.statements {
+            let objects;
+            if statement.is_pseudo() {
+                objects = self.pseudo_command_pass2(statement, &pc)?;
+            } else {
+                objects =
+                    statement.compile(&self.opcode_table, &self.labels, &self.current_label, pc)?;
+            }
+            // let dump = Self::dump_objects(&objects);
+            // eprintln!("{}\t{:?}", dump, statement);
+            pc += objects.len() as u16;
+            *objects_size += objects.len() as u16;
+            line.object_codes.extend(objects);
+        })
     }
 
     fn track_global_label(&mut self, line: &mut Line) {
@@ -229,8 +237,13 @@ impl Assembler {
         )
     }
 
-    fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
-        pseudo_commands::pass2(statement)
+    fn pseudo_command_pass2(
+        &mut self,
+        statement: &Statement,
+        current_address: &u16,
+    ) -> Result<Vec<u8>, AssemblyError> {
+        let labels = &self.labels;
+        pseudo_commands::pass2(statement, labels, current_address)
     }
 
     fn add_label(&mut self, name: &str, line: usize, address: u16) {
