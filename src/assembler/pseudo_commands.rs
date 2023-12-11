@@ -8,21 +8,27 @@ pub fn pass1(
     statement: &Statement,
     labels: &mut LabelTable,
     pc: &mut u16,
+    is_address_set: &mut bool,
 ) -> Result<(), AssemblyError> {
-    let mut origin = 0;
     let command = statement.command()?;
     if command == "*" {
         let address = pass1_command_start_address(statement)?;
-        origin = address;
         *pc = address;
+        *is_address_set = true;
         Ok(())
     } else if command == ":" {
         pass1_command_label_def(line, statement, labels)
     } else if command == "?" {
-        *pc = pass1_command_data_def(statement)?;
+        let bytes = pass1_command_data_def(statement)?;
+        if *is_address_set {
+            *pc += bytes;
+        }
         Ok(())
     } else if command == "$" {
-        *pc = pass1_command_data_fill(statement)?;
+        let bytes = pass1_command_data_fill(statement)?;
+        if *is_address_set {
+            *pc += bytes;
+        }
         Ok(())
     } else {
         Ok(())
@@ -94,22 +100,12 @@ fn pass1_command_start_address(statement: &Statement) -> Result<u16, AssemblyErr
 pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
     let command = statement.command()?;
     let expression = &statement.expression;
-    if command == "*" {
-        return pass2_command_origin(expression, statement);
-    } else if command == "?" {
+    if command == "?" {
         return pass2_command_data_def(expression, statement);
     } else if command == "$" {
         return pass2_command_data_fill(statement);
     }
     return Ok(Vec::new());
-}
-
-fn pass2_command_origin(
-    expression: &Expr,
-    statement: &Statement,
-) -> Result<Vec<u8>, AssemblyError> {
-    // todo implement
-    Ok(vec![])
 }
 
 fn pass2_command_data_def(
@@ -188,12 +184,14 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
+        let mut is_address_set = false;
         let statement_clone = statement.clone();
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
+            &mut is_address_set,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12);
@@ -228,12 +226,14 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
+        let mut is_address_set = false;
         let statement_clone = statement.clone();
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
+            &mut is_address_set,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12 * 2);

@@ -155,7 +155,7 @@ fn transform_do_statement(
         // ループ終了行 @=X>10 の処理
         let label = stack
             .pop()
-            .ok_or(AssemblyError::MacroError(format!("unmatch do loop")))?;
+            .ok_or(AssemblyError::MacroError(format!("mismatch do loop")))?;
         let lines = expand_do_statement(line, &label)?;
         result.extend(lines);
         let stmts = &line.statements[1..];
@@ -219,8 +219,8 @@ fn transform_statements(line: &Line) -> Result<Vec<Line>, AssemblyError> {
     let statements = &line.statements;
     let mut result = vec![];
     for statement in statements {
-        let transformd_statements = transform_statement(statement)?;
-        result.extend(transformd_statements);
+        let transformed_statements = transform_statement(statement)?;
+        result.extend(transformed_statements);
     }
 
     let mut inst = line.clone();

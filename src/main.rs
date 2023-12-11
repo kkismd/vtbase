@@ -1,4 +1,3 @@
-use error::AssemblyError;
 use ihex::Record;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -23,8 +22,6 @@ struct Opt {
     /// Use Intel HEX format
     #[structopt(long)]
     ihex: bool,
-    #[structopt(long)]
-    c64: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -53,24 +50,17 @@ fn run(source_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn st
     let mut lines = assembly_macro::expand(&lines)?;
     let mut assembler = Assembler::new();
     let obj_size = assembler.assemble(&mut lines)?;
-    eprintln!("assemble done. objext size = {} bytes", obj_size);
+    eprintln!("assemble done. object size = {} bytes", obj_size);
 
     if opt.ihex {
-        output_ihex(output_file, lines, assembler.origin)
+        output_ihex(output_file, lines)
     } else {
-        output_bin(output_file, lines, opt.c64)
+        output_bin(output_file, lines)
     }
 }
 
-fn output_bin(
-    output_file: File,
-    lines: Vec<Line>,
-    c64: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn output_bin(output_file: File, lines: Vec<Line>) -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = BufWriter::new(output_file);
-    if c64 {
-        writer.write(&vec![0x01, 0x08])?;
-    }
     for line in lines {
         for object_code in line.object_codes {
             writer
@@ -81,17 +71,14 @@ fn output_bin(
     Ok(())
 }
 
-fn output_ihex(
-    output_file: File,
-    lines: Vec<Line>,
-    start_address: Option<u16>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn output_ihex(output_file: File, lines: Vec<Line>) -> Result<(), Box<dyn std::error::Error>> {
     let mut objects = vec![];
-    for line in lines {
-        objects.extend(line.object_codes);
+    for line in &lines {
+        objects.extend(line.object_codes.clone());
     }
     let mut writer = BufWriter::new(output_file);
-    let start_address = start_address.ok_or(AssemblyError::program("start address"))?;
+    // TODO プログラムの途中でアドレスが変わる場合に対応する
+    let start_address = lines[0].address;
     let result = render_ihex(objects, start_address)?;
     writer.write_all(result.as_bytes())?;
     Ok(())

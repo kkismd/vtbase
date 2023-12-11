@@ -7,11 +7,11 @@ use crate::{error::AssemblyError, parser::Line};
 use std::collections::HashMap;
 
 pub struct Assembler {
-    pub origin: Option<u16>,
     pub pc: u16,
     pub labels: LabelTable,
     pub opcode_table: opcode::OpcodeTable,
     pub current_label: String,
+    pub is_address_set: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -90,11 +90,11 @@ impl Address {
 impl Assembler {
     pub fn new() -> Self {
         Self {
-            origin: None,
             pc: 0,
             labels: HashMap::new(),
             opcode_table: opcode::OpcodeTable::new(),
             current_label: String::new(),
+            is_address_set: false,
         }
     }
 
@@ -121,6 +121,9 @@ impl Assembler {
             if statement.is_pseudo() {
                 self.pseudo_command_pass1(line, statement)?;
                 continue;
+            }
+            if !self.is_address_set {
+                return Err(AssemblyError::program("address not set"));
             }
             let assembly_instruction = statement.decode(&self.labels)?;
             let len = assembly_instruction.addressing_mode.length();
@@ -217,7 +220,13 @@ impl Assembler {
         line: &Line,
         statement: &Statement,
     ) -> Result<(), AssemblyError> {
-        pseudo_commands::pass1(line, statement, &mut self.labels, &mut self.pc)
+        pseudo_commands::pass1(
+            line,
+            statement,
+            &mut self.labels,
+            &mut self.pc,
+            &mut self.is_address_set,
+        )
     }
 
     fn pseudo_command_pass2(&mut self, statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
