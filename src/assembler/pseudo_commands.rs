@@ -21,7 +21,14 @@ pub fn pass1(
     } else if command == "?" {
         let bytes = pass1_command_data_def(statement)?;
         if *is_address_set {
-            *pc += bytes;
+            let next = *pc as usize + bytes as usize;
+            if next > 0x10000 {
+                return Err(AssemblyError::program("data def overflow"));
+            } else if next == 0x10000 {
+                *pc = 0;
+            } else {
+                *pc += bytes;
+            }
         }
         Ok(())
     } else if command == "$" {
@@ -64,6 +71,7 @@ fn pass1_command_data_def(statement: &Statement) -> Result<u16, AssemblyError> {
             Expr::WordNum(_) => 2,
             Expr::DecimalNum(_) => 1,
             Expr::StringLiteral(ref s) => s.len() as u16,
+            Expr::Identifier(_) => 2,
             _ => return Err(AssemblyError::program("invalid data command")),
         }
     }
@@ -107,7 +115,7 @@ pub fn pass2(
     let command = statement.command()?;
     let expression = &statement.expression;
     if command == "?" {
-        return pass2_command_data_def(expression, statement);
+        return pass2_command_data_def(expression, statement, labels);
     } else if command == "$" {
         return pass2_command_data_fill(statement, labels, current_address);
     }
@@ -117,6 +125,7 @@ pub fn pass2(
 fn pass2_command_data_def(
     expression: &Expr,
     statement: &Statement,
+    labels: &LabelTable,
 ) -> Result<Vec<u8>, AssemblyError> {
     let mut objects = Vec::new();
     let values = expression.traverse_comma();
@@ -135,6 +144,18 @@ fn pass2_command_data_def(
             Expr::StringLiteral(ref s) => {
                 for c in s.chars() {
                     objects.push(c as u8);
+                }
+            }
+            Expr::Identifier(ref s) => {
+                let label = labels
+                    .get(s)
+                    .ok_or(AssemblyError::program("label not found"))?;
+                if let Address::Full(address) = label.address {
+                    objects.push((address & 0xff) as u8);
+                    objects.push((address >> 8) as u8);
+                } else {
+                    dbg!(statement);
+                    return Err(AssemblyError::program("invalid data command"));
                 }
             }
             _ => {

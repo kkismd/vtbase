@@ -224,14 +224,25 @@ fn decode_cpy(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
         .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CPY, Absolute, num)))
 }
 
-pub fn decode_c(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
-    decimal(expr).and_then(|num| match num {
-        // C=0
-        0 => ok_none(&CLC, Implied),
-        // C=1
-        1 => ok_none(&SEC, Implied),
+pub fn decode_flags(
+    command: &str,
+    expr: &Expr,
+    _labels: &LabelTable,
+) -> Result<AssemblyInstruction, AssemblyError> {
+    decimal(expr).and_then(|num| match (command, num) {
+        ("C", 0) => ok_none(&CLC, Implied),
+        ("C", 1) => ok_none(&SEC, Implied),
+        ("I", 0) => ok_none(&CLI, Implied),
+        ("I", 1) => ok_none(&SEI, Implied),
         _ => decode_error(expr),
     })
+}
+
+pub fn decode_stack(
+    expr: &Expr,
+    _labels: &LabelTable,
+) -> Result<AssemblyInstruction, AssemblyError> {
+    register_x(expr).and_then(|_| ok_none(&TXS, Implied))
 }
 
 /**

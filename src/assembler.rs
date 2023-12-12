@@ -161,7 +161,14 @@ impl Assembler {
             }
             // let dump = Self::dump_objects(&objects);
             // eprintln!("{}\t{:?}", dump, statement);
-            pc += objects.len() as u16;
+            let next = pc as usize + objects.len();
+            if next > 0x10000 {
+                return Err(AssemblyError::program("data def overflow"));
+            } else if next == 0x10000 {
+                pc = 0;
+            } else {
+                pc += objects.len() as u16;
+            }
             *objects_size += objects.len() as u16;
             line.object_codes.extend(objects);
         })
