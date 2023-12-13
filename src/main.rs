@@ -77,7 +77,6 @@ fn output_ihex(output_file: File, lines: Vec<Line>) -> Result<(), Box<dyn std::e
         objects.extend(line.object_codes.clone());
     }
     let mut writer = BufWriter::new(output_file);
-    // TODO プログラムの途中でアドレスが変わる場合に対応する
     let start_address = lines[0].address;
     let result = render_ihex(objects, start_address)?;
     writer.write_all(result.as_bytes())?;

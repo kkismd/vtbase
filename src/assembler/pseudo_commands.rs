@@ -7,13 +7,13 @@ pub fn pass1(
     line: &Line,
     statement: &Statement,
     labels: &mut LabelTable,
-    pc: &mut u16,
+    pc: &mut usize,
     is_address_set: &mut bool,
 ) -> Result<(), AssemblyError> {
     let command = statement.command()?;
     if command == "*" {
         let address = pass1_command_start_address(statement)?;
-        *pc = address;
+        *pc = address as usize;
         *is_address_set = true;
         Ok(())
     } else if command == ":" {
@@ -21,20 +21,14 @@ pub fn pass1(
     } else if command == "?" {
         let bytes = pass1_command_data_def(statement)?;
         if *is_address_set {
-            let next = *pc as usize + bytes as usize;
-            if next > 0x10000 {
-                return Err(AssemblyError::program("data def overflow"));
-            } else if next == 0x10000 {
-                *pc = 0;
-            } else {
-                *pc += bytes;
-            }
+            *pc += bytes as usize;
         }
         Ok(())
     } else if command == "$" {
-        let bytes = pass1_command_data_fill(statement, &labels, pc)?;
+        let pc_u16 = *pc as u16;
+        let bytes = pass1_command_data_fill(statement, &labels, &pc_u16)?;
         if *is_address_set {
-            *pc += bytes;
+            *pc += bytes as usize;
         }
         Ok(())
     } else {
@@ -214,7 +208,7 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut is_address_set = false;
+        let mut is_address_set = true;
         let statement_clone = statement.clone();
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),
@@ -258,7 +252,7 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut is_address_set = false;
+        let mut is_address_set = true;
         let statement_clone = statement.clone();
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),

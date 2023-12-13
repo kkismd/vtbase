@@ -7,7 +7,7 @@ use crate::{error::AssemblyError, parser::Line};
 use std::collections::HashMap;
 
 pub struct Assembler {
-    pub pc: u16,
+    pub pc: usize,
     pub labels: LabelTable,
     pub opcode_table: opcode::OpcodeTable,
     pub current_label: String,
@@ -98,7 +98,7 @@ impl Assembler {
         }
     }
 
-    pub fn assemble(&mut self, lines: &mut Vec<Line>) -> Result<u16, AssemblyError> {
+    pub fn assemble(&mut self, lines: &mut Vec<Line>) -> Result<usize, AssemblyError> {
         self.pass1(lines)?;
         let obj_size = self.pass2(lines)?;
         Ok(obj_size)
@@ -115,7 +115,10 @@ impl Assembler {
     }
 
     fn pass1_process_line(&mut self, line: &mut Line) -> Result<(), AssemblyError> {
-        line.address = self.pc;
+        if self.pc > 0x10000 {
+            return Err(AssemblyError::program("address overflow"));
+        }
+        line.address = self.pc as u16;
         self.entry_label(line)?;
         Ok(for statement in &line.statements {
             if statement.is_pseudo() {
@@ -127,51 +130,41 @@ impl Assembler {
             }
             let assembly_instruction = statement.decode(&self.labels)?;
             let len = assembly_instruction.addressing_mode.length();
-            self.pc += len as u16;
+            self.pc += len;
         })
     }
 
-    fn pass2(&mut self, lines: &mut Vec<Line>) -> Result<u16, AssemblyError> {
+    fn pass2(&mut self, lines: &mut Vec<Line>) -> Result<usize, AssemblyError> {
         self.current_label = String::new();
         let mut objects_size = 0;
         for line in lines {
-            self.pass2_process_line(line, &mut objects_size)
-                .map_err(|e| {
-                    eprintln!("[pass2] line = {:?}, error = {}", line, e.message());
-                    e
-                })?;
+            let size = self.pass2_process_line(line).map_err(|e| {
+                eprintln!("[pass2] line = {:?}, error = {}", line, e.message());
+                e
+            })?;
+            objects_size += size;
         }
         Ok(objects_size)
     }
 
-    fn pass2_process_line(
-        &mut self,
-        line: &mut Line,
-        objects_size: &mut u16,
-    ) -> Result<(), AssemblyError> {
-        let mut pc = line.address;
+    fn pass2_process_line(&mut self, line: &mut Line) -> Result<usize, AssemblyError> {
+        let mut objects_size = 0;
+        let mut pc: usize = line.address as usize;
         self.track_global_label(line);
-        Ok(for statement in &line.statements {
+        for statement in &line.statements {
             let objects;
             if statement.is_pseudo() {
-                objects = self.pseudo_command_pass2(statement, &pc)?;
+                let pc_u16 = pc as u16;
+                objects = self.pseudo_command_pass2(statement, &pc_u16)?;
             } else {
                 objects =
                     statement.compile(&self.opcode_table, &self.labels, &self.current_label, pc)?;
             }
-            // let dump = Self::dump_objects(&objects);
-            // eprintln!("{}\t{:?}", dump, statement);
-            let next = pc as usize + objects.len();
-            if next > 0x10000 {
-                return Err(AssemblyError::program("data def overflow"));
-            } else if next == 0x10000 {
-                pc = 0;
-            } else {
-                pc += objects.len() as u16;
-            }
-            *objects_size += objects.len() as u16;
+            pc += objects.len();
+            objects_size += objects.len();
             line.object_codes.extend(objects);
-        })
+        }
+        Ok(objects_size)
     }
 
     fn track_global_label(&mut self, line: &mut Line) {
@@ -207,7 +200,7 @@ impl Assembler {
                 self.current_label = label.to_string();
             }
             if let Some(entry) = self.labels.get_mut(&label) {
-                entry.address = Address::Full(self.pc);
+                entry.address = Address::Full(self.pc as u16);
             }
         }
         Ok(())
@@ -215,7 +208,7 @@ impl Assembler {
 
     fn add_entry(&mut self, label: &str, line: &Line) -> Result<(), AssemblyError> {
         if !self.labels.contains_key(label) {
-            self.add_label(&label, line.line_number, self.pc);
+            self.add_label(&label, line.line_number, self.pc as u16);
             Ok(())
         } else {
             return Err(AssemblyError::label_used(line.line_number, &label));
