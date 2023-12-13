@@ -83,7 +83,7 @@ impl Statement {
         opcode_table: &OpcodeTable,
         labels: &LabelTable,
         current_label: &str,
-        pc: u16,
+        pc: usize,
     ) -> Result<Vec<u8>, AssemblyError> {
         let assembly_instruction = self.decode(labels)?;
         // find opcode from mnemonic and mode
@@ -91,7 +91,8 @@ impl Statement {
             &assembly_instruction.mnemonic,
             &assembly_instruction.addressing_mode,
         )?;
-        let operand = self.operand_bytes(&assembly_instruction, labels, current_label, pc)?;
+        let operand =
+            self.operand_bytes(&assembly_instruction, labels, current_label, pc as u16)?;
 
         let mut bytes = vec![];
         bytes.push(opcode.opcode);
