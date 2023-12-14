@@ -2,14 +2,15 @@
 ;;   for VTBase (Very Tiny BASE assembler)
 
 ;; Monitor subroutines
-CONINIT :=$FD1B
-CONOUT  :=$FD39
-UNIMON  :=$F600
+CONINIT :=$FD1B                 ;; CONINIT EQU $FD1B
+CONOUT  :=$FD39                 ;; CONOUT  EQU $FD39
+UNIMON  :=$F600                 ;; UNIMON  EQU $F600
 
 ;; Zero page variables
-TMP1    :=$1f&%00010000
-PTR1    :=$12                   ;; ポインタ
-PTR1_H  :=PTR1+1
+TMP1    :=$1f&%00010000         ;; TMP1    EQU $1f&%00010000
+;;   pointer pair variables
+PTR1    :=$12                   ;; PTR1    EQU $12
+PTR1_H  :=PTR1+1                ;; PTR1_H  EQU PTR1+1
 
         *=$D000                 ;;      ORG $D000
 
@@ -65,3 +66,6 @@ newline
         #=!
 
 hello   ?="HELLO, WORLD.",0     ;;      !text "HELLO, WORLD."
+
+end_fill
+        $=$0f,$d0a0-*

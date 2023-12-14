@@ -14,7 +14,7 @@ use statement::Statement;
 
 // line of source code
 #[derive(Debug, Clone)]
-pub struct Instruction {
+pub struct Line {
     pub line_number: usize,
     pub address: u16,
     pub label: Option<String>,
@@ -22,7 +22,7 @@ pub struct Instruction {
     pub object_codes: Vec<u8>,
 }
 
-impl Instruction {
+impl Line {
     pub fn new(
         line_number: usize,
         address: u16,
@@ -51,21 +51,21 @@ impl Instruction {
 }
 
 // make abstract syntax tree from input file
-pub fn parse_from_file(file: &File) -> Result<Vec<Instruction>, AssemblyError> {
+pub fn parse_from_file(file: &File) -> Result<Vec<Line>, AssemblyError> {
     let reader = BufReader::new(file);
-    let mut instructions = Vec::new();
+    let mut lines = Vec::new();
 
     for (num, line) in reader.lines().enumerate() {
         let res = line;
         if let Ok(line) = res {
-            let instruction = parse_line(line, num + 1)?;
-            instructions.push(instruction);
+            let line = parse_line(line, num + 1)?;
+            lines.push(line);
         }
     }
-    Ok(instructions)
+    Ok(lines)
 }
 // make abstract syntax tree
-fn parse_line(line: String, line_num: usize) -> Result<Instruction, AssemblyError> {
+fn parse_line(line: String, line_num: usize) -> Result<Line, AssemblyError> {
     let line = remove_after_double_semicolon(&line);
     let cap = match_line(&line, line_num)?;
 
@@ -73,7 +73,7 @@ fn parse_line(line: String, line_num: usize) -> Result<Instruction, AssemblyErro
     let tokens = tokenize(body);
     let statements =
         parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, &e.message()))?;
-    Ok(Instruction::new(
+    Ok(Line::new(
         line_num,
         0,
         cap.name("label").map(|m| m.as_str()).map(String::from),

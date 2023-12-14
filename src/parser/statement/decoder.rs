@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use crate::assembler::LabelTable;
 use crate::opcode::{AssemblyInstruction, Mnemonic, Mode, OperandValue};
 use crate::{
     assembler::{Address, LabelEntry},
@@ -13,10 +12,7 @@ use crate::opcode::Mnemonic::*;
 
 type Decoder<T> = fn(&Expr) -> Result<T, AssemblyError>;
 
-pub fn decode_x(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_x(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         // X=$12
         .and_then(|num| ok_byte(&LDX, Immediate, num))
@@ -47,10 +43,7 @@ pub fn decode_x(
         .or_else(|_| decode_error(expr))
 }
 
-pub fn decode_y(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_y(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         .and_then(|num| ok_byte(&LDY, Immediate, num))
         .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDY, ZeroPage, num)))
@@ -62,10 +55,7 @@ pub fn decode_y(
         .or_else(|_| decode_error(expr))
 }
 
-pub fn decode_a(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_a(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     decode_lda(expr, labels)
         .or_else(|_| decode_adc(expr, labels))
         .or_else(|_| decode_sbc(expr, labels))
@@ -82,10 +72,7 @@ pub fn decode_a(
  * Indirect,X    LDA ($44,X)   A=[$44+X]
  * Indirect,Y    LDA ($44),Y   A=[$44]+Y
  */
-fn decode_lda(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_lda(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         .and_then(|num| ok_byte(&LDA, Immediate, num))
         .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDA, ZeroPage, num)))
@@ -109,10 +96,7 @@ fn decode_lda(
  * Indirect,X    ADC ($44,X)    A=AC+[$44+X]
  * Indirect,Y    ADC ($44),Y    A=AC+[$44]+Y
  */
-fn decode_adc(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_adc(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     plus(expr).and_then(|(left, right)| {
         register_ac(&left).and_then(|_| {
             immediate(&right, labels)
@@ -148,10 +132,7 @@ fn decode_adc(
  * Indirect,X    SBC ($44,X)   A=AC-[$44+X]
  * Indirect,Y    SBC ($44),Y   A=AC-[$44]+Y
  */
-fn decode_sbc(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_sbc(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     minus(expr).and_then(|(left, right)| {
         register_ac(&left).and_then(|_| {
             immediate(&right, labels)
@@ -182,10 +163,7 @@ fn decode_sbc(
  * T=X-??? -> CPX ???
  * T=Y-??? -> CPY ???
  */
-pub fn decode_t(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_t(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     minus(expr)
         .and_then(|(left, right)| {
             register_a(&left)
@@ -208,10 +186,7 @@ pub fn decode_t(
  * Indirect,X    CMP ($44,X)
  * Indirect,Y    CMP ($44),Y
  */
-fn decode_cmp(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_cmp(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         .and_then(|num| ok_byte(&CMP, Immediate, num))
         .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CMP, ZeroPage, num)))
@@ -229,10 +204,7 @@ fn decode_cmp(
  * Zero Page     CPX $44
  * Absolute      CPX $4400
  */
-fn decode_cpx(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_cpx(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         .and_then(|num| ok_byte(&CPX, Immediate, num))
         .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CPX, ZeroPage, num)))
@@ -245,27 +217,32 @@ fn decode_cpx(
  * Zero Page     CPY $44
  * Absolute      CPY $4400
  */
-fn decode_cpy(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+fn decode_cpy(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
         .and_then(|num| ok_byte(&CPY, Immediate, num))
         .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&CPY, ZeroPage, num)))
         .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CPY, Absolute, num)))
 }
 
-pub fn decode_c(
+pub fn decode_flags(
+    command: &str,
     expr: &Expr,
-    _labels: &HashMap<String, LabelEntry>,
+    _labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    decimal(expr).and_then(|num| match num {
-        // C=0
-        0 => ok_none(&CLC, Implied),
-        // C=1
-        1 => ok_none(&SEC, Implied),
+    decimal(expr).and_then(|num| match (command, num) {
+        ("C", 0) => ok_none(&CLC, Implied),
+        ("C", 1) => ok_none(&SEC, Implied),
+        ("I", 0) => ok_none(&CLI, Implied),
+        ("I", 1) => ok_none(&SEI, Implied),
         _ => decode_error(expr),
     })
+}
+
+pub fn decode_stack(
+    expr: &Expr,
+    _labels: &LabelTable,
+) -> Result<AssemblyInstruction, AssemblyError> {
+    register_x(expr).and_then(|_| ok_none(&TXS, Implied))
 }
 
 /**
@@ -274,7 +251,7 @@ pub fn decode_c(
  */
 pub fn decode_call(
     expr: &Expr,
-    _labels: &HashMap<String, LabelEntry>,
+    _labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     identifier(expr)
         .and_then(|name| ok_unresolved_label(JSR, Absolute, &name))
@@ -291,7 +268,7 @@ fn sysop_bang(expr: &Expr) -> Result<(), AssemblyError> {
 
 pub fn decode_goto(
     expr: &Expr,
-    _labels: &HashMap<String, LabelEntry>,
+    _labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     identifier(expr)
         .and_then(|name| ok_unresolved_label(JMP, Absolute, &name))
@@ -300,10 +277,7 @@ pub fn decode_goto(
         .or_else(|_| decode_error(expr))
 }
 
-pub fn decode_if(
-    expr: &Expr,
-    _labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     // ;=\,$12fd (IF NOT EQUAL THEN GOTO $12FD)
     comma(expr)
         .and_then(|(left, right)| {
@@ -334,7 +308,7 @@ fn if_condition_mnemonic(symbol: char) -> Result<Mnemonic, AssemblyError> {
 pub fn decode_address(
     command: &Expr,
     expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
+    labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     register_a(expr)
         .and_then(|_| decode_sta(command, labels))
@@ -352,10 +326,7 @@ pub fn decode_address(
  * Indirect,X    STA ($44,X)
  * Indirect,Y    STA ($44),Y
  */
-pub fn decode_sta(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_sta(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
         .and_then(|num| ok_byte(&STA, ZeroPage, num))
         .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&STA, ZeroPageX, num)))
@@ -371,10 +342,7 @@ pub fn decode_sta(
  * Zero Page,Y   STX $44,Y     $96  2   4
  * Absolute      STX $4400     $8E  3   4
  */
-pub fn decode_stx(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_stx(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
         .and_then(|num| ok_byte(&STX, ZeroPage, num))
         .or_else(|_| zeropage_y(expr, labels).and_then(|num| ok_byte(&STX, ZeroPageY, num)))
@@ -386,10 +354,7 @@ pub fn decode_stx(
  * Zero Page,X   STY $44,X     $94  2   4
  * Absolute      STY $4400     $8C  3   4
  */
-pub fn decode_sty(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<AssemblyInstruction, AssemblyError> {
+pub fn decode_sty(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     zeropage(expr, labels)
         .and_then(|num| ok_byte(&STY, ZeroPage, num))
         .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&STY, ZeroPageX, num)))
@@ -463,7 +428,7 @@ pub fn bracketed_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, Assemb
 /**
  * A=1 or A=$10 or A=label or A=<label or A=>label
  */
-pub fn immediate(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn immediate(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     num8bit(expr)
         .and_then(|num| Ok(num))
         .or_else(|_| zeropage_label(expr, labels))
@@ -472,7 +437,7 @@ pub fn immediate(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8
         .or_else(|_| decode_error(expr))
 }
 
-fn hi_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+fn hi_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     hi(expr).and_then(|label| {
         identifier(&label).and_then(|name| {
             lookup(&name, labels)
@@ -485,7 +450,7 @@ fn hi_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, Ass
     })
 }
 
-fn lo_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+fn lo_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     lo(expr).and_then(|label| {
         identifier(&label).and_then(|name| {
             lookup(&name, labels)
@@ -498,7 +463,7 @@ fn lo_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, Ass
     })
 }
 
-fn lookup(name: &str, labels: &HashMap<String, LabelEntry>) -> Result<LabelEntry, AssemblyError> {
+fn lookup(name: &str, labels: &LabelTable) -> Result<LabelEntry, AssemblyError> {
     labels
         .get(name)
         .cloned()
@@ -508,21 +473,18 @@ fn lookup(name: &str, labels: &HashMap<String, LabelEntry>) -> Result<LabelEntry
 /**
  * A=($1F) or A=(31) or A=(label)
  */
-pub fn zeropage(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn zeropage(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within::<u8>(expr, num8bit)
         // A=($1F) or A=(31)
         .and_then(|num| Ok(num))
         .or_else(|_| parenthesized(expr).and_then(|expr| zeropage_label(&expr, labels)))
 }
 
-fn zeropage_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+fn zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     offset_zeropage_label(expr, labels).or_else(|_| normal_zeropage_label(expr, labels))
 }
 
-fn normal_zeropage_label(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<u8, AssemblyError> {
+fn normal_zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     identifier(expr).and_then(|name| {
         lookup(&name, labels).and_then(|entry| match entry.address {
             Address::ZeroPage(addr) => Ok(addr),
@@ -531,28 +493,25 @@ fn normal_zeropage_label(
     })
 }
 
-fn offset_zeropage_label(
-    expr: &Expr,
-    labels: &HashMap<String, LabelEntry>,
-) -> Result<u8, AssemblyError> {
+fn offset_zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     plus(expr).and_then(|(left, right)| {
         normal_zeropage_label(&left, labels)
             .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u8)))
     })
 }
 
-pub fn absolute(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+pub fn absolute(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within::<u16>(expr, num16bit)
         // A=($1F) or A=(31)
         .and_then(|num| Ok(num))
         .or_else(|_| parenthesized(expr).and_then(|expr| absolute_label(&expr, labels)))
 }
 
-fn absolute_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+fn absolute_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     offset_label(expr, labels).or_else(|_| full_label(expr, labels))
 }
 
-fn full_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+fn full_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     identifier(expr).and_then(|name| {
         lookup(&name, labels)
             .and_then(|entry| match entry.address {
@@ -564,7 +523,7 @@ fn full_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, 
 }
 
 // label+123
-fn offset_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+fn offset_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     plus(expr).and_then(|(left, right)| {
         full_label(&left, labels)
             .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u16)))
@@ -574,7 +533,7 @@ fn offset_label(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16
 /**
  * X=($1F+Y) or X=(31+Y) or X=(label+Y)
  */
-pub fn zeropage_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn zeropage_y(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_y(&right)
             .and_then(|_| {
@@ -587,7 +546,7 @@ pub fn zeropage_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     })
 }
 
-pub fn zeropage_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn zeropage_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_x(&right)
             .and_then(|_| {
@@ -600,7 +559,7 @@ pub fn zeropage_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     })
 }
 
-pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+pub fn absolute_y(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_y(&right)
             .and_then(|_| {
@@ -613,7 +572,7 @@ pub fn absolute_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
     })
 }
 
-pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u16, AssemblyError> {
+pub fn absolute_x(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
         register_x(&right)
             .and_then(|_| {
@@ -627,7 +586,7 @@ pub fn absolute_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
 }
 
 // Indirect,X    LDA ($44,X)   A=[$44+X]
-pub fn indirect_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn indirect_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     bracketed_within(expr, plus).and_then(|(left, right)| {
         register_x(&right)
             .and_then(|_| {
@@ -641,7 +600,7 @@ pub fn indirect_x(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u
 }
 
 // Indirect,Y    LDA ($44),Y   A=[$44]+Y, A=[44]+Y, A=[label]+Y
-pub fn indirect_y(expr: &Expr, labels: &HashMap<String, LabelEntry>) -> Result<u8, AssemblyError> {
+pub fn indirect_y(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     plus(expr).and_then(|(ref left, ref right)| {
         // A=[$1F]+Y or A=[31]+Y
         register_y(right).and_then(|_| {
@@ -715,11 +674,12 @@ fn incr_decr_short(expr: &Expr) -> Result<Operator, AssemblyError> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
     fn test_absolute_y() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {
@@ -738,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_absolute_x() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {
@@ -758,7 +718,7 @@ mod tests {
 
     #[test]
     fn test_indirect_y() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {
@@ -779,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_hi_label() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {
@@ -794,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_lo_label() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {
@@ -809,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_lda_lo_label() {
-        let mut labels = HashMap::new();
+        let mut labels = LabelTable::new();
         labels.insert(
             "label".to_string(),
             LabelEntry {

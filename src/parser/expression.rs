@@ -12,11 +12,11 @@ use nom::{
     sequence::{preceded, tuple},
     IResult,
 };
+use std::num::ParseIntError;
 use std::str::FromStr;
-use std::{collections::HashMap, num::ParseIntError};
 
 use crate::{
-    assembler::{Address, LabelEntry},
+    assembler::{Address, LabelTable},
     error::AssemblyError::{self},
 };
 
@@ -100,27 +100,80 @@ impl Expr {
         }
     }
 
-    pub fn calculate_address(
-        self: &Expr,
-        labels: &HashMap<String, LabelEntry>,
-    ) -> Result<Address, AssemblyError> {
+    pub fn calculate_address(self: &Expr, labels: &LabelTable) -> Result<Address, AssemblyError> {
         match self {
-            Expr::Parenthesized(expr) => expr.calculate_address(labels),
-            Expr::BinOp(left, op, right) => {
-                let left = left.calculate_address(labels)?;
-                let right = right.calculate_address(labels)?;
-                left.calculate_with(&right, op)
-            }
+            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
+            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
+            Expr::WordNum(n) => Ok(Address::Full(*n)),
             Expr::Identifier(name) => {
                 let label_entry = labels
                     .get(name)
                     .ok_or(AssemblyError::program("label not found"))?;
                 Ok(label_entry.address.clone())
             }
-            Expr::DecimalNum(n) => Ok(Address::ZeroPage(*n as u8)),
-            Expr::ByteNum(n) => Ok(Address::ZeroPage(*n)),
-            Expr::WordNum(n) => Ok(Address::Full(*n)),
-            _ => Err(AssemblyError::program("invalid label address")),
+            Expr::BinOp(left, op, right) => {
+                let left = left.calculate_address(labels)?;
+                let right = right.calculate_address(labels)?;
+                left.calculate_with(&right, op)
+            }
+            Expr::Parenthesized(expr) => expr.calculate_address(labels),
+            _ => Err(AssemblyError::program(
+                "calculate_address(): invalid label address",
+            )),
+        }
+    }
+
+    // ラベル解決、アドレス計算のほか、システム変数 '*' (現在行のアドレス) の評価を行う
+    pub fn evaluate(
+        self: &Expr,
+        labels: &LabelTable,
+        current_address: &u16,
+    ) -> Result<u16, AssemblyError> {
+        match self {
+            Expr::SystemOperator('*') => Ok(*current_address),
+            Expr::DecimalNum(n) => Ok(*n),
+            Expr::ByteNum(n) => Ok(*n as u16),
+            Expr::WordNum(n) => Ok(*n),
+            Expr::Identifier(name) => {
+                let label_entry = labels
+                    .get(name)
+                    .ok_or(AssemblyError::program("label not found"))?;
+                let address = label_entry.address.clone();
+                match address {
+                    Address::ZeroPage(n) => Ok(n as u16),
+                    Address::Full(n) => Ok(n),
+                }
+            }
+            Expr::BinOp(left, op, right) => {
+                let left = left.evaluate(labels, current_address)?;
+                let right = right.evaluate(labels, current_address)?;
+                match op {
+                    Operator::Add => Ok(left + right),
+                    Operator::Sub => Ok(left - right),
+                    Operator::Mul => Ok(left * right),
+                    Operator::Div => Ok(left / right),
+                    Operator::And => Ok(left & right),
+                    Operator::Or => Ok(left | right),
+                    Operator::Xor => Ok(left ^ right),
+                    Operator::Greater => Ok(if left >= right { 1 } else { 0 }),
+                    Operator::Less => Ok(if left < right { 1 } else { 0 }),
+                    Operator::Equal => Ok(if left == right { 1 } else { 0 }),
+                    Operator::NotEqual => Ok(if left != right { 1 } else { 0 }),
+                    _ => Err(AssemblyError::program("evaluate(): invalid operator")),
+                }
+            }
+            Expr::Parenthesized(expr) => {
+                let address = expr.calculate_address(labels)?;
+                Self::address_to_u16(&address)
+            }
+            _ => Err(AssemblyError::program("evaluate(): invalid label address")),
+        }
+    }
+
+    fn address_to_u16(address: &Address) -> Result<u16, AssemblyError> {
+        match address {
+            Address::ZeroPage(n) => Ok(*n as u16),
+            Address::Full(n) => Ok(*n),
         }
     }
 }
@@ -268,7 +321,7 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        one_of("-<>=/+_#\\!^:;*@?"),
+        one_of("-<>=/+_#\\!^:;*@?$"),
         |c: char| -> Result<Expr, ParseIntError> { Ok(Expr::SystemOperator(c)) },
     )(input)
 }

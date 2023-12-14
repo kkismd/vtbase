@@ -1,28 +1,35 @@
 use crate::parser::expression::{Expr, Operator};
-use crate::Instruction;
+use crate::Line;
 
 use super::*;
 
 pub fn pass1(
-    instruction: &Instruction,
+    line: &Line,
     statement: &Statement,
-    labels: &mut HashMap<String, LabelEntry>,
-    pc: &mut u16,
-    origin: &mut u16,
+    labels: &mut LabelTable,
+    pc: &mut usize,
+    is_address_set: &mut bool,
 ) -> Result<(), AssemblyError> {
     let command = statement.command()?;
     if command == "*" {
         let address = pass1_command_start_address(statement)?;
-        *origin = address;
-        *pc = address;
+        *pc = address as usize;
+        *is_address_set = true;
         Ok(())
     } else if command == ":" {
-        pass1_command_label_def(instruction, statement, labels)
+        pass1_command_label_def(line, statement, labels)
     } else if command == "?" {
-        *pc = pass1_command_data_def(statement)?;
+        let bytes = pass1_command_data_def(statement)?;
+        if *is_address_set {
+            *pc += bytes as usize;
+        }
         Ok(())
     } else if command == "$" {
-        *pc = pass1_command_data_fill(statement)?;
+        let pc_u16 = *pc as u16;
+        let bytes = pass1_command_data_fill(statement, &labels, &pc_u16)?;
+        if *is_address_set {
+            *pc += bytes as usize;
+        }
         Ok(())
     } else {
         Ok(())
@@ -31,12 +38,12 @@ pub fn pass1(
 
 // label def
 fn pass1_command_label_def(
-    instruction: &Instruction,
+    line: &Line,
     statement: &Statement,
-    labels: &mut HashMap<String, LabelEntry>,
+    labels: &mut LabelTable,
 ) -> Result<(), AssemblyError> {
     let address = statement.expression.calculate_address(&labels)?;
-    let label_name = instruction
+    let label_name = line
         .label
         .clone()
         .ok_or(AssemblyError::program("label def need label"))?;
@@ -58,6 +65,7 @@ fn pass1_command_data_def(statement: &Statement) -> Result<u16, AssemblyError> {
             Expr::WordNum(_) => 2,
             Expr::DecimalNum(_) => 1,
             Expr::StringLiteral(ref s) => s.len() as u16,
+            Expr::Identifier(_) => 2,
             _ => return Err(AssemblyError::program("invalid data command")),
         }
     }
@@ -65,19 +73,21 @@ fn pass1_command_data_def(statement: &Statement) -> Result<u16, AssemblyError> {
 }
 
 // %=$FF,12 -> fill 12 bytes with data $FF
-fn pass1_command_data_fill(statement: &Statement) -> Result<u16, AssemblyError> {
+fn pass1_command_data_fill(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<u16, AssemblyError> {
     let expr = &statement.expression;
     match expr {
         Expr::BinOp(left, Operator::Comma, right) => {
             if let Expr::ByteNum(_) = **left {
-                if let Expr::DecimalNum(fill_count) = **right {
-                    return Ok(fill_count as u16);
-                }
+                let fill_count = right.evaluate(labels, current_address)?;
+                return Ok(fill_count);
             }
             if let Expr::WordNum(_) = **left {
-                if let Expr::DecimalNum(fill_count) = **right {
-                    return Ok((fill_count * 2) as u16);
-                }
+                let fill_count = right.evaluate(labels, current_address)?;
+                return Ok(fill_count * 2);
             }
         }
         _ => (),
@@ -91,13 +101,17 @@ fn pass1_command_start_address(statement: &Statement) -> Result<u16, AssemblyErr
     }
     Err(AssemblyError::program("invalid start address"))
 }
-pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+pub fn pass2(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<Vec<u8>, AssemblyError> {
     let command = statement.command()?;
     let expression = &statement.expression;
     if command == "?" {
-        return pass2_command_data_def(expression, statement);
+        return pass2_command_data_def(expression, statement, labels);
     } else if command == "$" {
-        return pass2_command_data_fill(statement);
+        return pass2_command_data_fill(statement, labels, current_address);
     }
     return Ok(Vec::new());
 }
@@ -105,6 +119,7 @@ pub fn pass2(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
 fn pass2_command_data_def(
     expression: &Expr,
     statement: &Statement,
+    labels: &LabelTable,
 ) -> Result<Vec<u8>, AssemblyError> {
     let mut objects = Vec::new();
     let values = expression.traverse_comma();
@@ -125,6 +140,18 @@ fn pass2_command_data_def(
                     objects.push(c as u8);
                 }
             }
+            Expr::Identifier(ref s) => {
+                let label = labels
+                    .get(s)
+                    .ok_or(AssemblyError::program("label not found"))?;
+                if let Address::Full(address) = label.address {
+                    objects.push((address & 0xff) as u8);
+                    objects.push((address >> 8) as u8);
+                } else {
+                    dbg!(statement);
+                    return Err(AssemblyError::program("invalid data command"));
+                }
+            }
             _ => {
                 dbg!(statement);
                 return Err(AssemblyError::program("invalid data command"));
@@ -135,25 +162,28 @@ fn pass2_command_data_def(
 }
 
 // %=$FF,12 -> fill 12 bytes with data $FF
-fn pass2_command_data_fill(statement: &Statement) -> Result<Vec<u8>, AssemblyError> {
+fn pass2_command_data_fill(
+    statement: &Statement,
+    labels: &LabelTable,
+    current_address: &u16,
+) -> Result<Vec<u8>, AssemblyError> {
     let expr = &statement.expression;
     let mut objects = Vec::new();
     match expr {
         Expr::BinOp(left, Operator::Comma, right) => {
-            if let Expr::DecimalNum(fill_count) = **right {
-                if let Expr::ByteNum(fill_value) = **left {
-                    for _ in 0..fill_count {
-                        objects.push(fill_value);
-                    }
-                    return Ok(objects);
+            let fill_count = right.evaluate(labels, current_address)?;
+            if let Expr::ByteNum(fill_value) = **left {
+                for _ in 0..fill_count {
+                    objects.push(fill_value);
                 }
-                if let Expr::WordNum(fill_value) = **left {
-                    for _ in 0..fill_count {
-                        objects.push((fill_value & 0xff) as u8);
-                        objects.push((fill_value >> 8) as u8);
-                    }
-                    return Ok(objects);
+                return Ok(objects);
+            }
+            if let Expr::WordNum(fill_value) = **left {
+                for _ in 0..fill_count {
+                    objects.push((fill_value & 0xff) as u8);
+                    objects.push((fill_value >> 8) as u8);
                 }
+                return Ok(objects);
             }
         }
         _ => (),
@@ -178,14 +208,14 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut origin = 0;
+        let mut is_address_set = true;
         let statement_clone = statement.clone();
         let result = pass1(
-            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
-            &mut origin,
+            &mut is_address_set,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12);
@@ -201,7 +231,9 @@ mod tests {
                 Box::new(Expr::DecimalNum(12)),
             ),
         );
-        let result = pass2(&statement);
+        let labels = HashMap::new();
+        let pc = 0;
+        let result = pass2(&statement, &labels, &pc);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12);
@@ -220,14 +252,14 @@ mod tests {
         );
         let mut labels = HashMap::new();
         let mut pc = 0;
-        let mut origin = 0;
+        let mut is_address_set = true;
         let statement_clone = statement.clone();
         let result = pass1(
-            &Instruction::new(0, 0, None, vec![statement], vec![]),
+            &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
             &mut labels,
             &mut pc,
-            &mut origin,
+            &mut is_address_set,
         );
         assert!(result.is_ok());
         assert_eq!(pc, 12 * 2);
@@ -243,7 +275,9 @@ mod tests {
                 Box::new(Expr::DecimalNum(12)),
             ),
         );
-        let result = pass2(&statement);
+        let labels = HashMap::new();
+        let pc = 0;
+        let result = pass2(&statement, &labels, &pc);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12 * 2);
