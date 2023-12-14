@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use crate::parser::expression::{Expr, Operator};
 use crate::Line;
 
@@ -6,6 +9,7 @@ use super::*;
 pub fn pass1(
     line: &Line,
     statement: &Statement,
+    current_path: PathBuf,
     labels: &mut LabelTable,
     pc: &mut usize,
     is_address_set: &mut bool,
@@ -27,6 +31,12 @@ pub fn pass1(
     } else if command == "$" {
         let pc_u16 = *pc as u16;
         let bytes = pass1_command_data_fill(statement, &labels, &pc_u16)?;
+        if *is_address_set {
+            *pc += bytes as usize;
+        }
+        Ok(())
+    } else if command == "&" {
+        let bytes = pass1_command_include_binary(statement, current_path)?;
         if *is_address_set {
             *pc += bytes as usize;
         }
@@ -105,6 +115,7 @@ pub fn pass2(
     statement: &Statement,
     labels: &LabelTable,
     current_address: &u16,
+    current_path: PathBuf,
 ) -> Result<Vec<u8>, AssemblyError> {
     let command = statement.command()?;
     let expression = &statement.expression;
@@ -112,8 +123,29 @@ pub fn pass2(
         return pass2_command_data_def(expression, statement, labels);
     } else if command == "$" {
         return pass2_command_data_fill(statement, labels, current_address);
+    } else if command == "&" {
+        return pass2_command_include_binary(statement, current_path);
     }
     return Ok(Vec::new());
+}
+
+fn pass1_command_include_binary(
+    statement: &Statement,
+    current_path: PathBuf,
+) -> Result<u16, AssemblyError> {
+    let expr = &statement.expression;
+    match expr {
+        Expr::StringLiteral(ref filename) => {
+            let path = current_path.join(filename);
+            inspect_filesize(&path)
+        }
+        _ => Err(AssemblyError::program("invalid include command")),
+    }
+}
+
+fn inspect_filesize(path: &Path) -> Result<u16, AssemblyError> {
+    let metadata = fs::metadata(path)?;
+    Ok(metadata.len() as u16)
 }
 
 fn pass2_command_data_def(
@@ -192,6 +224,25 @@ fn pass2_command_data_fill(
     return Err(AssemblyError::program("invalid fill command"));
 }
 
+fn pass2_command_include_binary(
+    statement: &Statement,
+    current_path: PathBuf,
+) -> Result<Vec<u8>, AssemblyError> {
+    let expr = &statement.expression;
+    match expr {
+        Expr::StringLiteral(ref s) => {
+            let path = current_path.join(s);
+            read_binary_file(path)
+        }
+        _ => Err(AssemblyError::program("invalid include command")),
+    }
+}
+
+fn read_binary_file(path: PathBuf) -> Result<Vec<u8>, AssemblyError> {
+    let data = fs::read(path)?;
+    Ok(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,9 +261,11 @@ mod tests {
         let mut pc = 0;
         let mut is_address_set = true;
         let statement_clone = statement.clone();
+        let path = PathBuf::from(".");
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
+            path,
             &mut labels,
             &mut pc,
             &mut is_address_set,
@@ -233,7 +286,8 @@ mod tests {
         );
         let labels = HashMap::new();
         let pc = 0;
-        let result = pass2(&statement, &labels, &pc);
+        let path = PathBuf::from(".");
+        let result = pass2(&statement, &labels, &pc, path);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12);
@@ -253,10 +307,12 @@ mod tests {
         let mut labels = HashMap::new();
         let mut pc = 0;
         let mut is_address_set = true;
+        let path = PathBuf::from(".");
         let statement_clone = statement.clone();
         let result = pass1(
             &Line::new(0, 0, None, vec![statement], vec![]),
             &statement_clone,
+            path,
             &mut labels,
             &mut pc,
             &mut is_address_set,
@@ -277,7 +333,8 @@ mod tests {
         );
         let labels = HashMap::new();
         let pc = 0;
-        let result = pass2(&statement, &labels, &pc);
+        let path = PathBuf::from(".");
+        let result = pass2(&statement, &labels, &pc, path);
         assert!(result.is_ok());
         let objects = result.unwrap();
         assert_eq!(objects.len(), 12 * 2);

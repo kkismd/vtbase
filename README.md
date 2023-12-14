@@ -11,10 +11,10 @@ code image.
      2                                *=$080e          ;        *=$080e           
      3                                                   
      4  080e a200                     ldx #$00         ;        X=#0              
-     5  0810 bd1c08             loop  lda hello,x      ; loop   A=hello+X         
+     5  0810 bd1c08             loop  lda hello,x      ; loop   A=(hello+X)       
      6  0813 20d2ff                   jsr CHROUT       ;        !=CHROUT          
      7  0816 e8                       inx              ;        X=+               
-     8  0817 e00d                     cpx #$0d         ;        ;=X>13 #=loop
+     8  0817 e00d                     cpx #$0d         ;        ;=X<14 #=loop
      9  0819 d0f5                     bne loop         ;         
     10  081b 60                       rts              ;        #=!               
     11                                                   
@@ -131,7 +131,6 @@ expands to
   ;=<,.loop_label
 ```
 
-
 ## Addressing Mode
 
 | mode                | asm format | vtbase format |
@@ -151,6 +150,7 @@ expands to
 | Accumulator         | A          | A             |
 
 Note:
+
 * aa = 2 hex digits as $FF
 * aaaa = 4 hex digits as $FFFF
 
@@ -162,7 +162,6 @@ Note:
 | *=$aaaa               | *=$aaaa           |
 | .text "hello world",0 | ?="hello world",0 |
 
-
 ## symbols
 
 | 記号 | command      | expression     | VTL,GAME80                  |
@@ -170,8 +169,8 @@ Note:
 | !    | JSR          |                |                             |
 | @    | LOOP         |                | LOOP (GAME80)               |
 | #    | JMP or BRA   |                |                             |
-| $    | DATA Fill    |                | print ascii code            |
-| &    |              | AND            | High memory (VTL)           |
+| $    | DATA Fill    | hex value      | print ascii code            |
+| &    | inc_bin      | AND            | High memory (VTL)           |
 | *    | ORG          | current addr   | multiply / Low memory (VTL) |
 | (    | ローテート左 | 括弧           |                             |
 | )    | ローテート右 |                | comment (VTL)               |
@@ -183,13 +182,13 @@ Note:
 | ?    | データ文     |                | print string                |
 | :    | EQL          | ELSE           | Array (VTL)                 |
 | ;    | IF           | ;; コメント    |                             |
-| %    |              |                | mod (VTL, GAME80)           |
+| %    | MACRO        | bin value      | mod (VTL, GAME80)           |
 | ^    | RTS          | XOR            |                             |
 | ｜   |              | OR             |                             |
 | ｀   |              |                |                             |
 | _    | NOP          |                |                             |
 | -    |              | 減算           |                             |
-| +    |              | 加算           |                             |
+| +    | include      | 加算           |                             |
 | =    |              | 等号           |                             |
 | \    |              | 不等号         |                             |
 | ,    |              | COMMA          |                             |
@@ -199,5 +198,3 @@ Note:
 | {    |              | ローテート左   |                             |
 | }    |              | ローテート右   |                             |
 | ~    | RTI          | 不等号         |                             |
-
-

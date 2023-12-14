@@ -321,7 +321,7 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        one_of("-<>=/+_#\\!^:;*@?$"),
+        one_of("-<>=/+_#\\!^:;*@?$&"),
         |c: char| -> Result<Expr, ParseIntError> { Ok(Expr::SystemOperator(c)) },
     )(input)
 }

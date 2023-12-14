@@ -3,11 +3,14 @@ use crate::error::AssemblyError;
 use regex::Captures;
 use regex::Regex;
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::vec;
 pub mod expression;
 use expression::Expr;
+
+mod include_reader;
+use include_reader::IncludeReader;
 
 pub mod statement;
 use statement::Statement;
@@ -51,11 +54,12 @@ impl Line {
 }
 
 // make abstract syntax tree from input file
-pub fn parse_from_file(file: &File) -> Result<Vec<Line>, AssemblyError> {
+pub fn parse_from_file(file: &File, file_path: PathBuf) -> Result<Vec<Line>, AssemblyError> {
     let reader = BufReader::new(file);
+    let include_reader = IncludeReader::new(reader, file_path);
     let mut lines = Vec::new();
 
-    for (num, line) in reader.lines().enumerate() {
+    for (num, line) in include_reader.lines().enumerate() {
         let res = line;
         if let Ok(line) = res {
             let line = parse_line(line, num + 1)?;
@@ -64,6 +68,7 @@ pub fn parse_from_file(file: &File) -> Result<Vec<Line>, AssemblyError> {
     }
     Ok(lines)
 }
+
 // make abstract syntax tree
 fn parse_line(line: String, line_num: usize) -> Result<Line, AssemblyError> {
     let line = remove_after_double_semicolon(&line);
@@ -217,13 +222,13 @@ mod tests {
 
     #[test]
     fn test_tokenize() {
-        let tokens = tokenize("@ A=1 B=2 C=\"hello world\",0 ($00)=A");
+        let tokens = tokenize("@ A=1 B=2 C=\"hello world\",0 (0)=A");
         assert_eq!(tokens.len(), 5);
         assert_eq!(tokens[0], "@");
         assert_eq!(tokens[1], "A=1");
         assert_eq!(tokens[2], "B=2");
         assert_eq!(tokens[3], "C=\"hello world\",0");
-        assert_eq!(tokens[4], "($00)=A");
+        assert_eq!(tokens[4], "(0)=A");
     }
 
     #[test]
