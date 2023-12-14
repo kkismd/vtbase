@@ -1,5 +1,5 @@
-use std::error::Error;
 use std::fmt;
+use std::{error::Error, io};
 
 use crate::opcode::{AddressingMode, Mnemonic};
 
@@ -10,6 +10,13 @@ pub enum AssemblyError {
     ProgramError(String),
     MacroError(String),
     DecodeError(String),
+    IoError(String),
+}
+
+impl From<io::Error> for AssemblyError {
+    fn from(error: io::Error) -> Self {
+        AssemblyError::IoError(error.to_string())
+    }
 }
 
 impl AssemblyError {
@@ -20,6 +27,7 @@ impl AssemblyError {
             AssemblyError::ProgramError(details) => details,
             AssemblyError::MacroError(details) => details,
             AssemblyError::DecodeError(details) => details,
+            AssemblyError::IoError(details) => details,
         }
     }
 
@@ -72,6 +80,7 @@ impl fmt::Display for AssemblyError {
             AssemblyError::ProgramError(details) => write!(f, "syntax error: {}", details),
             AssemblyError::MacroError(details) => write!(f, "syntax error: {}", details),
             AssemblyError::DecodeError(details) => write!(f, "decode error: {}", details),
+            AssemblyError::IoError(details) => write!(f, "io error: {}", details),
         }
     }
 }

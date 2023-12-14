@@ -5,6 +5,7 @@ use crate::parser::expression::Operator;
 use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Line};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct Assembler {
     pub pc: usize,
@@ -12,6 +13,7 @@ pub struct Assembler {
     pub opcode_table: opcode::OpcodeTable,
     pub current_label: String,
     pub is_address_set: bool,
+    pub current_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -88,13 +90,14 @@ impl Address {
 }
 
 impl Assembler {
-    pub fn new() -> Self {
+    pub fn new(current_path: PathBuf) -> Self {
         Self {
             pc: 0,
             labels: HashMap::new(),
             opcode_table: opcode::OpcodeTable::new(),
             current_label: String::new(),
             is_address_set: false,
+            current_path: current_path,
         }
     }
 
@@ -231,6 +234,7 @@ impl Assembler {
         pseudo_commands::pass1(
             line,
             statement,
+            self.current_path.clone(),
             &mut self.labels,
             &mut self.pc,
             &mut self.is_address_set,
@@ -243,7 +247,12 @@ impl Assembler {
         current_address: &u16,
     ) -> Result<Vec<u8>, AssemblyError> {
         let labels = &self.labels;
-        pseudo_commands::pass2(statement, labels, current_address)
+        pseudo_commands::pass2(
+            statement,
+            labels,
+            current_address,
+            self.current_path.clone(),
+        )
     }
 
     fn add_label(&mut self, name: &str, line: usize, address: u16) {

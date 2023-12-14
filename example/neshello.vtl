@@ -1,11 +1,13 @@
-nes_header                      ;; iNESヘッダ
-        ?=$4E,$45,$53,$1A       ;; "NES" Header
-        ?=$02                   ;;  PRG-BANKS
-        ?=$01                   ;;  CHR-BANKS
-        ?=$01                   ;;  Vetrical Mirror
-        ?=$00                   ;;  
-        ?=$00,$00,$00,$00       ;;  
-        ?=$00,$00,$00,$00       ;;  
+;; nes_header                      ;; iNESヘッダ
+;;         ?=$4E,$45,$53,$1A       ;; "NES" Header
+;;         ?=$02                   ;;  PRG-BANKS
+;;         ?=$01                   ;;  CHR-BANKS
+;;         ?=$01                   ;;  Vetrical Mirror
+;;         ?=$00                   ;;  
+;;         ?=$00,$00,$00,$00       ;;  
+;;         ?=$00,$00,$00,$00       ;;  
+
+        +="nes_header.vtl"
 
         *=$8000                 ;; .segment "STARTUP"
 
@@ -81,5 +83,5 @@ string                          ;;string:
         ?=$0000                 ;;        .word        $0000
                                 ;;
                                 ;;; パターンテーブル
-                                ;;.segment "CHARS"
-                                ;;        .incbin        "character.chr"
+        *=$0000                 ;;.segment "CHARS"
+        &="character.chr"       ;;        .incbin        "character.chr"

@@ -1,6 +1,7 @@
 use ihex::Record;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::process;
 
 mod assembler;
@@ -28,11 +29,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = Opt::from_args();
 
     // open source file
-    let file_open_result = File::open(&opt.src_file);
-    if let Err(e) = file_open_result {
-        eprintln!("can't open source file: {}", e);
-        process::exit(1);
-    }
+    let source_file_string = opt.src_file.clone();
+    let source_file_path = Path::new(&source_file_string);
+    let source_file = File::open(&source_file_path).expect("can't open source file");
     // output bin file
     let create_file_result = File::create(&opt.obj_file);
     if let Err(e) = create_file_result {
@@ -40,15 +39,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         process::exit(1);
     }
 
-    let source_file = file_open_result.unwrap();
+    let current_file_path = source_file_path.parent().unwrap();
     let object_file = create_file_result.unwrap();
-    run(&source_file, object_file, opt)
+    run(&source_file, current_file_path, object_file, opt)
 }
 
-fn run(source_file: &File, output_file: File, opt: Opt) -> Result<(), Box<dyn std::error::Error>> {
-    let lines = parser::parse_from_file(source_file)?;
+fn run(
+    source_file: &File,
+    source_file_path: &Path,
+    output_file: File,
+    opt: Opt,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let lines = parser::parse_from_file(source_file, source_file_path.to_path_buf())?;
     let mut lines = assembly_macro::expand(&lines)?;
-    let mut assembler = Assembler::new();
+    let mut assembler = Assembler::new(source_file_path.to_path_buf());
     let obj_size = assembler.assemble(&mut lines)?;
     eprintln!("assemble done. object size = {} bytes", obj_size);
 
