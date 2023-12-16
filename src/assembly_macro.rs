@@ -1,3 +1,5 @@
+use regex::Regex;
+
 use crate::{
     error::AssemblyError,
     parser::{
@@ -231,6 +233,10 @@ fn transform_statements(line: &Line) -> Result<Vec<Line>, AssemblyError> {
 fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, AssemblyError> {
     a_plus_n(&statement.expression)
         .map(|expr| transform_adc_statement(&expr))
+        .or_else(|_| inxx(statement).map(|n| transform_xx_statement(n, "X", "+")))
+        .or_else(|_| dexx(statement).map(|n| transform_xx_statement(n, "X", "-")))
+        .or_else(|_| inyy(statement).map(|n| transform_xx_statement(n, "Y", "+")))
+        .or_else(|_| deyy(statement).map(|n| transform_xx_statement(n, "Y", "-")))
         .or_else(|_| Ok(vec![statement.clone()]))
 }
 
@@ -242,6 +248,38 @@ fn a_plus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
         },
         _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
     }
+}
+
+fn process_xx(
+    statement: &Statement,
+    cmd: &str,
+    op_pattern: &str,
+    error_msg: &str,
+) -> Result<usize, AssemblyError> {
+    let re = Regex::new(op_pattern).unwrap();
+    match statement.command.clone() {
+        Expr::Identifier(command) if command == cmd => match &statement.expression {
+            Expr::SystemOperator(op) if re.is_match(&op) => Ok(op.len()),
+            _ => Err(AssemblyError::MacroError(error_msg.to_string())),
+        },
+        _ => Err(AssemblyError::MacroError(error_msg.to_string())),
+    }
+}
+
+fn inxx(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "X", r"^[+]+$", "inxx()")
+}
+
+fn dexx(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "X", r"^[-]+$", "dexx()")
+}
+
+fn inyy(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "Y", r"^[+]+$", "inyy()")
+}
+
+fn deyy(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "Y", r"^[-]+$", "deyy()")
 }
 
 // A=A+n -> C=0 A=AC+n
@@ -259,6 +297,15 @@ fn transform_adc_statement(expr: &Expr) -> Vec<Statement> {
     result
 }
 
+fn transform_xx_statement(n: usize, cmd: &str, op: &str) -> Vec<Statement> {
+    let mut result = vec![];
+    let stmt = Statement::new(cmd, Expr::SystemOperator(op.to_string()));
+    for _ in 0..n {
+        result.push(stmt.clone());
+    }
+    result
+}
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -266,4 +313,138 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn generate_macro_identifier() -> String {
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
     format!("#macro_{}", count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transform_add_statement() {
+        let statement = Statement::new(
+            "A",
+            Expr::BinOp(
+                Box::new(Expr::Identifier("A".to_string())),
+                Operator::Add,
+                Box::new(Expr::DecimalNum(1)),
+            ),
+        );
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, Expr::Identifier("C".to_string()));
+        assert_eq!(result[0].expression, Expr::DecimalNum(0));
+        assert_eq!(result[1].command, Expr::Identifier("A".to_string()));
+        assert_eq!(
+            result[1].expression,
+            Expr::BinOp(
+                Box::new(Expr::Identifier("AC".to_string())),
+                Operator::Add,
+                Box::new(Expr::DecimalNum(1))
+            )
+        );
+    }
+
+    #[test]
+    fn test_transform_inxx_statement() {
+        let statement = Statement::new("X", Expr::SystemOperator("++".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("+".to_string()));
+    }
+
+    #[test]
+    fn test_transform_inxxxx_statement() {
+        let statement = Statement::new("X", Expr::SystemOperator("++++".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[2].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[2].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[3].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[3].expression, Expr::SystemOperator("+".to_string()));
+    }
+
+    #[test]
+    fn test_transform_dexx_statement() {
+        let statement = Statement::new("X", Expr::SystemOperator("--".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("-".to_string()));
+    }
+
+    #[test]
+    fn test_transform_dexxxx_statement() {
+        let statement = Statement::new("X", Expr::SystemOperator("----".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[2].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[2].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[3].command, Expr::Identifier("X".to_string()));
+        assert_eq!(result[3].expression, Expr::SystemOperator("-".to_string()));
+    }
+
+    #[test]
+    fn test_transform_inyy_statement() {
+        let statement = Statement::new("Y", Expr::SystemOperator("++".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("+".to_string()));
+    }
+
+    #[test]
+    fn test_transform_inyyyy_statement() {
+        let statement = Statement::new("Y", Expr::SystemOperator("++++".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[2].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[2].expression, Expr::SystemOperator("+".to_string()));
+        assert_eq!(result[3].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[3].expression, Expr::SystemOperator("+".to_string()));
+    }
+
+    #[test]
+    fn test_transform_deyy_statement() {
+        let statement = Statement::new("Y", Expr::SystemOperator("--".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("-".to_string()));
+    }
+
+    #[test]
+    fn test_transform_deyyyy_statement() {
+        let statement = Statement::new("Y", Expr::SystemOperator("----".to_string()));
+        let result = transform_statement(&statement).unwrap();
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[0].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[1].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[1].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[2].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[2].expression, Expr::SystemOperator("-".to_string()));
+        assert_eq!(result[3].command, Expr::Identifier("Y".to_string()));
+        assert_eq!(result[3].expression, Expr::SystemOperator("-".to_string()));
+    }
 }
