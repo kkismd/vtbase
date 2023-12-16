@@ -7,7 +7,7 @@ use nom::{
     character::complete::{alpha1, alphanumeric1, digit1, none_of, one_of},
     combinator::{map, verify},
     combinator::{map_res, recognize},
-    multi::many0,
+    multi::{many0, many1},
     sequence::delimited,
     sequence::{preceded, tuple},
     IResult,
@@ -69,7 +69,7 @@ pub enum Expr {
     BinOp(Box<Expr>, Operator, Box<Expr>),
     Parenthesized(Box<Expr>),
     Bracketed(Box<Expr>),
-    SystemOperator(char),
+    SystemOperator(String),
     Empty,
 }
 
@@ -130,7 +130,7 @@ impl Expr {
         current_address: &u16,
     ) -> Result<u16, AssemblyError> {
         match self {
-            Expr::SystemOperator('*') => Ok(*current_address),
+            Expr::SystemOperator(name) if name == "*" => Ok(*current_address),
             Expr::DecimalNum(n) => Ok(*n),
             Expr::ByteNum(n) => Ok(*n as u16),
             Expr::WordNum(n) => Ok(*n),
@@ -321,8 +321,11 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        one_of("-<>=/+_#\\!^:;*@?$&"),
-        |c: char| -> Result<Expr, ParseIntError> { Ok(Expr::SystemOperator(c)) },
+        many1(one_of("-<>=/+_#\\!^:;*@?$&")),
+        |v: Vec<char>| -> Result<Expr, ParseIntError> {
+            let s: String = v.into_iter().collect();
+            Ok(Expr::SystemOperator(s))
+        },
     )(input)
 }
 
@@ -404,7 +407,7 @@ mod tests {
             Ok((
                 "",
                 Expr::BinOp(
-                    Box::new(Expr::SystemOperator('=')),
+                    Box::new(Expr::SystemOperator('='.to_string())),
                     Operator::Comma,
                     Box::new(Expr::Identifier(".skip".to_string()))
                 )
@@ -448,6 +451,30 @@ mod tests {
         assert_eq!(
             parse_expr(".skip"),
             Ok(("", Expr::Identifier(".skip".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_sysop() {
+        assert_eq!(
+            parse_expr("+"),
+            Ok(("", Expr::SystemOperator('+'.to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_sysop_double() {
+        assert_eq!(
+            parse_expr("++"),
+            Ok(("", Expr::SystemOperator("++".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_sysop_mixed() {
+        assert_eq!(
+            parse_expr("+-"),
+            Ok(("", Expr::SystemOperator("+-".to_string())))
         );
     }
 }
