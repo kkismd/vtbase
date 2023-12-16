@@ -192,9 +192,9 @@ pub fn bracketed(expr: &Expr) -> Result<Expr, AssemblyError> {
     }
 }
 
-pub fn sysop(expr: &Expr) -> Result<char, AssemblyError> {
+pub fn sysop(expr: &Expr) -> Result<String, AssemblyError> {
     match expr {
-        Expr::SystemOperator(c) => Ok(*c),
+        Expr::SystemOperator(c) => Ok(c.to_string()),
         _ => syntax_error("invalid system operator"),
     }
 }

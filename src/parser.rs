@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn test_parse_label_def() {
         let statement = parse_token(":=$80FF").unwrap();
-        assert_eq!(statement.command, Expr::SystemOperator(':'));
+        assert_eq!(statement.command, Expr::SystemOperator(':'.to_string()));
         assert_eq!(statement.expression, Expr::WordNum(0x80FF));
     }
 
@@ -209,11 +209,11 @@ mod tests {
     #[test]
     fn test_parse_token_ifeq() {
         let statement = parse_token(";==,.skip").unwrap();
-        assert_eq!(statement.command, Expr::SystemOperator(';'));
+        assert_eq!(statement.command, Expr::SystemOperator(';'.to_string()));
         assert_eq!(
             statement.expression,
             Expr::BinOp(
-                Box::new(Expr::SystemOperator('=')),
+                Box::new(Expr::SystemOperator('='.to_string())),
                 expression::Operator::Comma,
                 Box::new(Expr::Identifier(".skip".to_string()))
             )

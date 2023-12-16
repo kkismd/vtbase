@@ -14,32 +14,13 @@ type Decoder<T> = fn(&Expr) -> Result<T, AssemblyError>;
 
 pub fn decode_x(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     immediate(expr, labels)
-        // X=$12
         .and_then(|num| ok_byte(&LDX, Immediate, num))
-        .or_else(|_| {
-            // X=(label), X=(31), X=($1F)
-            zeropage(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPage, num))
-        })
-        .or_else(|_| {
-            // X=(label+Y), X=(31+Y), X=($1F+Y)
-            zeropage_y(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPageY, num))
-        })
-        .or_else(|_| {
-            // X=(label), X=(4863), X=($12FF)
-            absolute(expr, labels).and_then(|num| ok_word(&LDX, Absolute, num))
-        })
-        .or_else(|_| {
-            // X=(label+Y), X=(4863+Y), X=($12FF+Y)
-            absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num))
-        })
-        .or_else(|_| {
-            // X=X+1, X=+
-            increment(expr, "X").and_then(|_| ok_none(&INX, Implied))
-        })
-        .or_else(|_| {
-            // X=X-1, X=-
-            decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied))
-        })
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPage, num)))
+        .or_else(|_| zeropage_y(expr, labels).and_then(|num| ok_byte(&LDX, ZeroPageY, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LDX, Absolute, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num)))
+        .or_else(|_| increment(expr, "X").and_then(|_| ok_none(&INX, Implied)))
+        .or_else(|_| decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -260,8 +241,10 @@ pub fn decode_call(
 }
 
 fn sysop_bang(expr: &Expr) -> Result<(), AssemblyError> {
-    if let Expr::SystemOperator('!') = expr {
-        return Ok(());
+    if let Expr::SystemOperator(c) = expr {
+        if c == "!" {
+            return Ok(());
+        }
     }
     decode_error(expr)
 }
@@ -282,7 +265,7 @@ pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstructio
     comma(expr)
         .and_then(|(left, right)| {
             sysop(&left).and_then(|symbol| {
-                if_condition_mnemonic(symbol).and_then(|mnemonic| {
+                if_condition_mnemonic(&symbol).and_then(|mnemonic| {
                     num16bit(&right)
                         .and_then(|addr| ok_unresolved_relative(mnemonic.clone(), Relative, addr))
                         .or_else(|_| {
@@ -295,13 +278,13 @@ pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstructio
         .or_else(|_| decode_error(expr))
 }
 
-fn if_condition_mnemonic(symbol: char) -> Result<Mnemonic, AssemblyError> {
+fn if_condition_mnemonic(symbol: &str) -> Result<Mnemonic, AssemblyError> {
     match symbol {
-        '\\' => Ok(BNE),
-        '=' => Ok(BEQ),
-        '>' => Ok(BCS),
-        '<' => Ok(BCC),
-        _ => decode_error(&Expr::SystemOperator(symbol)),
+        "\\" => Ok(BNE),
+        "=" => Ok(BEQ),
+        ">" => Ok(BCS),
+        "<" => Ok(BCC),
+        _ => decode_error(&Expr::SystemOperator(symbol.to_string())),
     }
 }
 
@@ -662,9 +645,9 @@ fn incr_decr_long(expr: &Expr, register_left: &str) -> Result<Operator, Assembly
  */
 fn incr_decr_short(expr: &Expr) -> Result<Operator, AssemblyError> {
     sysop(expr).and_then(|symbol| {
-        if symbol == '+' {
+        if symbol == "+" {
             Ok(Operator::Add)
-        } else if symbol == '-' {
+        } else if symbol == "-" {
             Ok(Operator::Sub)
         } else {
             decode_error(expr)

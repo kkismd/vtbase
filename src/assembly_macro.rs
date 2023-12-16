@@ -80,10 +80,10 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
         // ;=<,#macro_1.1
         let sysop = match op {
             // 条件を逆にしてTHEN節をスキップする判定を行う
-            Operator::Equal => '/',
-            Operator::NotEqual => '=',
-            Operator::Less => '>',
-            Operator::Greater => '<',
+            Operator::Equal => "/",
+            Operator::NotEqual => "=",
+            Operator::Less => ">",
+            Operator::Greater => "<",
             _ => {
                 return Err(AssemblyError::MacroError(format!(
                     "{:?} expand_if_statement() invalid operator {:?}",
@@ -91,7 +91,7 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
                 )))
             }
         };
-        let lhs = Box::new(Expr::SystemOperator(sysop));
+        let lhs = Box::new(Expr::SystemOperator(sysop.to_string()));
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
         let stmt2 = Statement::new(";", expr2);
@@ -183,10 +183,10 @@ fn expand_do_statement(line: &Line, label: &str) -> Result<Vec<Line>, AssemblyEr
         // ;=<,#macro_1.1
         let sysop = match op {
             // 条件を逆にしてループを抜ける判定を行う
-            Operator::Equal => '/',
-            Operator::NotEqual => '=',
-            Operator::Less => '>',
-            Operator::Greater => '<',
+            Operator::Equal => "/",
+            Operator::NotEqual => "=",
+            Operator::Less => ">",
+            Operator::Greater => "<",
             _ => {
                 return Err(AssemblyError::MacroError(format!(
                     "expand_do_statement() invalid operator {:?}",
@@ -194,7 +194,7 @@ fn expand_do_statement(line: &Line, label: &str) -> Result<Vec<Line>, AssemblyEr
                 )))
             }
         };
-        let lhs = Box::new(Expr::SystemOperator(sysop));
+        let lhs = Box::new(Expr::SystemOperator(sysop.to_string()));
         let next_label = format!("{}.1", label);
         let rhs = Box::new(Expr::Identifier(next_label.clone()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
