@@ -1,17 +1,5 @@
 ;; nes hello world program
 
-;; PPU I/O registers
-PPU_CTRL1       :=$2000
-PPU_CTRL2       :=$2001
-PPU_STATUS      :=$2002
-SPRITE_ADDR     :=$2003
-SPRITE_WRITE    :=$2004
-SCROLL_REG      :=$2005
-VRAM_ADDR       :=$2006
-VRAM_WRITE      :=$2007
-SPRITE_DMA      :=$4014
-PALETTE_TABLE   :=$3f00
-
         +="nes_header.vtl"
 
         *=$8000                 ;; .segment "STARTUP"
@@ -28,37 +16,39 @@ reset                           ;; proc Reset
         (PPU_CTRL2)=A           ;;      sta $2001
 
                                 ;;; パレットテーブルへ転送(BG用のみ転送)
-        A=>PALETTE_TABLE        ;;       lda #$3f
-        (VRAM_ADDR)=A           ;;       sta $2006
-        A=<PALETTE_TABLE        ;;       lda #$00
-        (VRAM_ADDR)=A           ;;       sta $2006
+        A=>BG_PALETTE_TBL       ;;       lda #$3f
+        (PPU_VRAM_ADDR2)=A      ;;       sta $2006
+        A=<BG_PALETTE_TBL       ;;       lda #$00
+        (PPU_VRAM_ADDR2)=A      ;;       sta $2006
         X=$00                   ;;       ldx #$00
         Y=$10                   ;;       ldy #$10
 copypal                         ;;copypal:
         A=(palettes+X)          ;;       lda palettes, x
-        (VRAM_WRITE)=A               ;;       sta $2007
+        (PPU_VRAM_IO)=A         ;;       sta $2007
         X=+                     ;;       inx
         Y=-                     ;;       dey
         ;=\,copypal             ;;       bne copypal
 
                                 ;;; ネームテーブルへ転送(画面の中央付近)
         A=$21                   ;;        lda #$21
-        (VRAM_ADDR)=A           ;;        sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;        sta $2006
         A=$c9                   ;;        lda #$c9
-        (VRAM_ADDR)=A           ;;        sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;        sta $2006
         X=$00                   ;;        ldx #$00
         Y=$0d                   ;;        ldy #$0d                ; 13文字表示
 copymap                         ;;copymap:
         A=(string+X)            ;;        lda string, x
-        (VRAM_WRITE)=A               ;;        sta $2007
+        (PPU_VRAM_IO)=A         ;;        sta $2007
         X=+                     ;;        inx
         Y=-                     ;;        dey
         ;=\,copymap             ;;        bne copymap
-                                ;;
+
+        !=main                  ;; 今回の処理に飛ぶ
+
                                 ;;; スクロール設定
         A=$00                   ;;        lda #$00
-        (SCROLL_REG)=A          ;;        sta $2005
-        (SCROLL_REG)=A          ;;        sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;        sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;        sta $2005
                                 ;;
                                 ;;; スクリーンオン
         A=$08                   ;;        lda #$08
@@ -71,6 +61,69 @@ mainloop                        ;;mainloop:
         #=mainloop              ;;        jmp mainloop
                                 ;;.endproc
 
+;; 今回主な処理を行う場所
+main
+        ;; データスタックのトップは$00ff, ゼロページの上位から下位へ伸びる
+
+        X=$ff                   ;; スタックポインタを初期化
+
+        ;; 座標(10, 10)をスタックに積む
+        X=- X=-                 ;; x座標
+        A=0
+        (1+X)=A
+        A=10
+        (0+X)=A
+
+        X=- X=-                 ;; y座標
+        A=0
+        A=$20
+        (1+X)=A
+        A=10
+        A=$00
+        (0+X)=A
+
+        ;; 指定した座標をアドレスに変換
+        !=pos2addr
+
+
+        A=(1+X)                 ;; アドレス上位
+        (PPU_VRAM_ADDR2)=A      ;; 
+        A=(0+X)                 ;; アドレス下位
+        (PPU_VRAM_ADDR2)=A      ;;  
+        A='\'                   ;; 出力したい文字
+        (PPU_VRAM_IO)=A         ;; VRAMに書き込み
+
+        #=!                     ;; RTS
+
+
+;; スタックの座標をVRAMのアドレスに変換する
+;; ( y_pos x_pos -- address )
+pos2addr
+        ;; TODO 実装する
+
+        #=!
+
+;; VRAMの指定アドレスに値を書き込む
+;; ( b addr -- )
+write_to_vram
+        A=(3+X)                 ;; アドレス上位
+        (PPU_VRAM_ADDR2)=A      ;; 
+        A=(2+X)                 ;; アドレス下位
+        (PPU_VRAM_ADDR2)=A      ;;  
+        A=(0+X)                 ;; 出力したい文字
+        (PPU_VRAM_IO)=A         ;; VRAMに書き込み
+        X=+ X=+ X=+ X=+         ;; スタック解放
+
+        #=!
+
+;; スタックの1段目と3段目を入れ替える
+;; ( a b c -- c b a )
+rot2
+
+        #=!
+
+;; ------------------------------------------------------------------------
+;; data area
                                 ;;; パレットテーブル
 palettes                        ;;palettes:
         ?=$0f,$30,$00,$10       ;;        .byte        $0f, $00, $10, $20
@@ -89,4 +142,4 @@ string                          ;;string:
                                 ;;
                                 ;;; パターンテーブル
         *=$0000                 ;;.segment "CHARS"
-        &="font.chr"       ;;        .incbin        "character.chr"
+        &="font.chr"            ;;        .incbin        "character.chr"

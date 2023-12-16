@@ -6,3 +6,21 @@ nes_header                      ;; iNESヘッダ
         ?=$00                   ;;  
         ?=$00,$00,$00,$00       ;;  
         ?=$00,$00,$00,$00       ;;  
+
+;; PPU I/O registers
+PPU_CTRL1       :=$2000
+PPU_CTRL2       :=$2001
+PPU_STATUS      :=$2002
+PPU_SPR_ADDR    :=$2003
+PPU_SPR_IO      :=$2004
+PPU_VRAM_ADDR1  :=$2005
+PPU_VRAM_ADDR2  :=$2006
+PPU_VRAM_IO     :=$2007
+
+BG_PALETTE_TBL  :=$3f00
+SPR_PALETTE_TBL :=$3f10
+
+SCREEN_WIDTH    :=32
+SCREEN_HEIGHT   :=29
+
+VRAM_NAME_TBL   :=$2000
