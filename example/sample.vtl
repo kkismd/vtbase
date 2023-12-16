@@ -33,6 +33,8 @@ loop    A=(hello+X)             ;;      LDA hello,X
         ;==,.skip               ;;      BEQ .skip
         !=CONOUT                ;;      JSR CONOUT
         X=+                     ;;      INX
+        X=++                    ;;      INX INX
+        X=---                   ;;      DEX DEX DEX
         #=loop                  ;;      JMP loop
 .skip   !=newline
         Y=0                     ;;      LDY #0
