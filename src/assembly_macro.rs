@@ -59,7 +59,6 @@ fn transform_if_statement(line: &Line) -> Result<Vec<Line>, AssemblyError> {
     let lines = expand_if_statement(line, &trailer_label)?;
     result.extend(lines);
     result.push(trailer);
-    // dbg!(&result);
     Ok(result)
 }
 
@@ -77,7 +76,6 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
         let stmt1 = Statement::new("T", Expr::BinOp(lhs.clone(), Operator::Sub, rhs.clone()));
         let inst1 = Line::new(line.line_number, line.address, None, vec![stmt1], vec![]);
         result.push(inst1);
-
         // 2nd line
         // ;=<,#macro_1.1
         let sysop = match op {
@@ -96,7 +94,10 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
         let lhs = Box::new(Expr::SystemOperator(sysop.to_string()));
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
-        let stmt2 = Statement::new(";", expr2);
+        let stmt2 = Statement {
+            command: Expr::SystemOperator(";".to_string()),
+            expression: expr2,
+        };
         let inst2 = Line::new(line.line_number, line.address, None, vec![stmt2], vec![]);
         result.push(inst2);
 
@@ -164,7 +165,6 @@ fn transform_do_statement(
         let rest_line = Line::new(line.line_number, line.address, None, stmts.to_vec(), vec![]);
         result.push(rest_line);
     }
-    // dbg!(&result);
     Ok(result)
 }
 
@@ -231,12 +231,18 @@ fn transform_statements(line: &Line) -> Result<Vec<Line>, AssemblyError> {
 }
 
 fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, AssemblyError> {
-    a_plus_n(&statement.expression)
+    let expr = &statement.expression;
+    a_plus_n(expr)
         .map(|expr| transform_adc_statement(&expr))
+        .or_else(|_| a_minus_n(expr).map(|expr| transform_sbc_statement(&expr)))
         .or_else(|_| inxx(statement).map(|n| transform_xx_statement(n, "X", "+")))
         .or_else(|_| dexx(statement).map(|n| transform_xx_statement(n, "X", "-")))
         .or_else(|_| inyy(statement).map(|n| transform_xx_statement(n, "Y", "+")))
         .or_else(|_| deyy(statement).map(|n| transform_xx_statement(n, "Y", "-")))
+        .or_else(|_| stack_to(statement).map(|n| transform_stack_to_statement(n, expr)))
+        .or_else(|_| {
+            stack_from(statement).map(|n| transform_stack_from_statement(n, &statement.command))
+        })
         .or_else(|_| Ok(vec![statement.clone()]))
 }
 
@@ -247,6 +253,38 @@ fn a_plus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
             _ => Err(AssemblyError::MacroError("a_plus_n() ".to_string())),
         },
         _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
+    }
+}
+
+fn a_minus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
+    match expr {
+        Expr::BinOp(lhs, Operator::Sub, rhs) => match **lhs {
+            Expr::Identifier(ref id) if id == "A" => Ok((**rhs).clone()),
+            _ => Err(AssemblyError::MacroError("a_minus_n() ".to_string())),
+        },
+        _ => Err(AssemblyError::MacroError("a_minus_n()".to_string())),
+    }
+}
+
+// xxx=[n] -> xxx=[n+X]
+fn stack_from(statement: &Statement) -> Result<u16, AssemblyError> {
+    match statement.expression.clone() {
+        Expr::Bracketed(expr) => match *expr {
+            Expr::DecimalNum(n) => Ok(n),
+            _ => Err(AssemblyError::MacroError("stack_from()".to_string())),
+        },
+        _ => Err(AssemblyError::MacroError("stack_from()".to_string())),
+    }
+}
+
+// [n]=xxx -> [n+X]=xxx
+fn stack_to(statement: &Statement) -> Result<u16, AssemblyError> {
+    match statement.command.clone() {
+        Expr::Bracketed(expr) => match *expr {
+            Expr::DecimalNum(n) => Ok(n),
+            _ => Err(AssemblyError::MacroError("stack_to()".to_string())),
+        },
+        _ => Err(AssemblyError::MacroError("stack_to()".to_string())),
     }
 }
 
@@ -294,6 +332,51 @@ fn transform_adc_statement(expr: &Expr) -> Vec<Statement> {
     let stmt2 = Statement::new("A", ac_plus_n);
     result.push(stmt1);
     result.push(stmt2);
+    result
+}
+
+// A=A+n -> C=0 A=AC+n
+fn transform_sbc_statement(expr: &Expr) -> Vec<Statement> {
+    let mut result = vec![];
+    let stmt1 = Statement::new("C", Expr::DecimalNum(1));
+    let ac_minus_n = Expr::BinOp(
+        Box::new(Expr::Identifier("AC".to_string())),
+        Operator::Sub,
+        Box::new(expr.clone()),
+    );
+    let stmt2 = Statement::new("A", ac_minus_n);
+    result.push(stmt1);
+    result.push(stmt2);
+    result
+}
+
+// xxx=[n] -> xxx=[n+X]
+fn transform_stack_from_statement(n: u16, cmd: &Expr) -> Vec<Statement> {
+    let mut result = vec![];
+    let stmt1 = Statement {
+        command: cmd.clone(),
+        expression: Expr::Parenthesized(Box::new(Expr::BinOp(
+            Box::new(Expr::DecimalNum(n)),
+            Operator::Add,
+            Box::new(Expr::Identifier("X".to_string())),
+        ))),
+    };
+    result.push(stmt1);
+    result
+}
+
+// [n]=xxx -> [n+X]=xxx
+fn transform_stack_to_statement(n: u16, expr: &Expr) -> Vec<Statement> {
+    let mut result = vec![];
+    let stmt1 = Statement {
+        command: Expr::Parenthesized(Box::new(Expr::BinOp(
+            Box::new(Expr::DecimalNum(n)),
+            Operator::Add,
+            Box::new(Expr::Identifier("X".to_string())),
+        ))),
+        expression: expr.clone(),
+    };
+    result.push(stmt1);
     result
 }
 

@@ -1,17 +1,5 @@
 ;; nes hello world program
 
-;; PPU I/O registers
-PPU_CTRL1       :=$2000
-PPU_CTRL2       :=$2001
-PPU_STATUS      :=$2002
-SPRITE_ADDR     :=$2003
-SPRITE_WRITE    :=$2004
-SCROLL_REG      :=$2005
-VRAM_ADDR       :=$2006
-VRAM_WRITE      :=$2007
-SPRITE_DMA      :=$4014
-PALETTE_TABLE   :=$3f00
-
         +="nes_header.vtl"
 
         *=$8000                 ;; .segment "STARTUP"
@@ -28,37 +16,39 @@ reset                           ;; proc Reset
         (PPU_CTRL2)=A           ;;      sta $2001
 
                                 ;;; パレットテーブルへ転送(BG用のみ転送)
-        A=>PALETTE_TABLE        ;;       lda #$3f
-        (VRAM_ADDR)=A           ;;       sta $2006
-        A=<PALETTE_TABLE        ;;       lda #$00
-        (VRAM_ADDR)=A           ;;       sta $2006
+        A=>BG_PALETTE_TBL       ;;       lda #$3f
+        (PPU_VRAM_ADDR2)=A      ;;       sta $2006
+        A=<BG_PALETTE_TBL       ;;       lda #$00
+        (PPU_VRAM_ADDR2)=A      ;;       sta $2006
         X=$00                   ;;       ldx #$00
         Y=$10                   ;;       ldy #$10
 copypal                         ;;copypal:
         A=(palettes+X)          ;;       lda palettes, x
-        (VRAM_WRITE)=A               ;;       sta $2007
+        (PPU_VRAM_IO)=A         ;;       sta $2007
         X=+                     ;;       inx
         Y=-                     ;;       dey
         ;=\,copypal             ;;       bne copypal
 
                                 ;;; ネームテーブルへ転送(画面の中央付近)
         A=$21                   ;;        lda #$21
-        (VRAM_ADDR)=A           ;;        sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;        sta $2006
         A=$c9                   ;;        lda #$c9
-        (VRAM_ADDR)=A           ;;        sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;        sta $2006
         X=$00                   ;;        ldx #$00
         Y=$0d                   ;;        ldy #$0d                ; 13文字表示
 copymap                         ;;copymap:
         A=(string+X)            ;;        lda string, x
-        (VRAM_WRITE)=A               ;;        sta $2007
+        (PPU_VRAM_IO)=A         ;;        sta $2007
         X=+                     ;;        inx
         Y=-                     ;;        dey
         ;=\,copymap             ;;        bne copymap
-                                ;;
+
+        !=main                  ;; 今回の処理に飛ぶ
+
                                 ;;; スクロール設定
         A=$00                   ;;        lda #$00
-        (SCROLL_REG)=A          ;;        sta $2005
-        (SCROLL_REG)=A          ;;        sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;        sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;        sta $2005
                                 ;;
                                 ;;; スクリーンオン
         A=$08                   ;;        lda #$08
@@ -71,6 +61,80 @@ mainloop                        ;;mainloop:
         #=mainloop              ;;        jmp mainloop
                                 ;;.endproc
 
+;; 今回主な処理を行う場所
+main
+        ;; データスタックのトップは$00fe, セルは2byte, ゼロページの上位から下位へ伸びる
+
+        X=$00                   ;; データスタックポインタを初期化
+
+        ;; 座標(8, 12)をスタックに積む
+        X=--                    ;; x座標
+        A=0
+        [1]=A
+        A=8
+        [0]=A
+
+        X=--                    ;; y座標
+        A=0
+        [1]=A
+        A=12
+        [0]=A
+
+        !=locate
+
+        !=two                   ;; スタックに2を積む
+        !=numhex                ;; 文字 '01' に変換する
+        A=[0]                   ;; 1文字目を出力
+        (PPU_VRAM_IO)=A
+        A=[2]                   ;; 2文字目
+        (PPU_VRAM_IO)=A
+        X=++++                  ;; スタックをクリア
+
+        A='@'
+        (PPU_VRAM_IO)=A
+        A='C'
+        (PPU_VRAM_IO)=A
+        A='a'
+        (PPU_VRAM_IO)=A
+        A='k'
+        (PPU_VRAM_IO)=A
+        A='e'
+        (PPU_VRAM_IO)=A
+
+        #=!
+
+        ;; include stack related library
+        +="stack.vtl"
+
+;; スタックに積まれた1byteをhex2文字に変換する
+;; ( n -- c-hi c-lo )
+numhex
+        X=--            ;; スタックを1段深くする
+        A=[2]           ;; nを取り出す
+        >=A >=A         ;; 上位4bitを下位にずらす
+        >=A >=A
+        !=hexchar       ;;
+        [0]=A           ;; スタックトップに置く
+        A=0
+        [1]=A
+        A=[2]           ;; もう一度nを取り出す
+        !=hexchar       ;; 文字に変換
+        [2]=A           ;; スタック2段目に置く
+        A=0
+        [3]=A
+        #=!             ;; 終わり
+
+
+;; Aレジスタ下位4bitの値を0-Fの文字に変換する
+hexchar
+        A=A&$0f                 ;; 上位4bitをマスクする
+        ;=A>$A A=A+7
+        A=A+$30
+        #=!
+
+
+;; ------------------------------------------------------------------------
+;; data area
                                 ;;; パレットテーブル
 palettes                        ;;palettes:
         ?=$0f,$30,$00,$10       ;;        .byte        $0f, $00, $10, $20
@@ -89,4 +153,4 @@ string                          ;;string:
                                 ;;
                                 ;;; パターンテーブル
         *=$0000                 ;;.segment "CHARS"
-        &="font.chr"       ;;        .incbin        "character.chr"
+        &="font.chr"            ;;        .incbin        "character.chr"

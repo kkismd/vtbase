@@ -21,6 +21,7 @@ pub fn decode_x(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction,
         .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDX, AbsoluteY, num)))
         .or_else(|_| increment(expr, "X").and_then(|_| ok_none(&INX, Implied)))
         .or_else(|_| decrement(expr, "X").and_then(|_| ok_none(&DEX, Implied)))
+        .or_else(|_| register_a(expr).and_then(|_| ok_none(&TAX, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -33,6 +34,7 @@ pub fn decode_y(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction,
         .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&LDY, AbsoluteX, num)))
         .or_else(|_| increment(expr, "Y").and_then(|_| ok_none(&INY, Implied)))
         .or_else(|_| decrement(expr, "Y").and_then(|_| ok_none(&DEY, Implied)))
+        .or_else(|_| register_a(expr).and_then(|_| ok_none(&TAY, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -40,6 +42,9 @@ pub fn decode_a(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction,
     decode_lda(expr, labels)
         .or_else(|_| decode_adc(expr, labels))
         .or_else(|_| decode_sbc(expr, labels))
+        .or_else(|_| decode_ora(expr, labels))
+        .or_else(|_| decode_and(expr, labels))
+        .or_else(|_| decode_pop(expr, labels))
         .or_else(|_| decode_error(expr))
 }
 
@@ -140,6 +145,90 @@ fn decode_sbc(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
 }
 
 /**
+ * Immediate     ORA #$44      $09  2   2
+ * Zero Page     ORA $44       $05  2   3
+ * Zero Page,X   ORA $44,X     $15  2   4
+ * Absolute      ORA $4400     $0D  3   4
+ * Absolute,X    ORA $4400,X   $1D  3   4+
+ * Absolute,Y    ORA $4400,Y   $19  3   4+
+ * Indirect,X    ORA ($44,X)   $01  2   6
+ * Indirect,Y    ORA ($44),Y   $11  2   5+
+ */
+fn decode_ora(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    or(expr).and_then(|(left, right)| {
+        register_a(&left).and_then(|_| {
+            immediate(&right, labels)
+                .and_then(|num| ok_byte(&ORA, Immediate, num))
+                .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&ORA, ZeroPage, num)))
+                .or_else(|_| {
+                    zeropage_x(&right, labels).and_then(|num| ok_byte(&ORA, ZeroPageX, num))
+                })
+                .or_else(|_| absolute(&right, labels).and_then(|num| ok_word(&ORA, Absolute, num)))
+                .or_else(|_| {
+                    absolute_x(&right, labels).and_then(|num| ok_word(&ORA, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    absolute_y(&right, labels).and_then(|num| ok_word(&ORA, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    indirect_x(&right, labels).and_then(|num| ok_byte(&ORA, IndirectX, num))
+                })
+                .or_else(|_| {
+                    indirect_y(&right, labels).and_then(|num| ok_byte(&ORA, IndirectY, num))
+                })
+        })
+    })
+}
+
+/**
+ * Immediate     AND #$44      $29  2   2
+ * Zero Page     AND $44       $25  2   3
+ * Zero Page,X   AND $44,X     $35  2   4
+ * Absolute      AND $4400     $2D  3   4
+ * Absolute,X    AND $4400,X   $3D  3   4+
+ * Absolute,Y    AND $4400,Y   $39  3   4+
+ * Indirect,X    AND ($44,X)   $21  2   6
+ * Indirect,Y    AND ($44),Y   $31  2   5+
+ */
+fn decode_and(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    and(expr).and_then(|(left, right)| {
+        register_a(&left).and_then(|_| {
+            immediate(&right, labels)
+                .and_then(|num| ok_byte(&AND, Immediate, num))
+                .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&AND, ZeroPage, num)))
+                .or_else(|_| {
+                    zeropage_x(&right, labels).and_then(|num| ok_byte(&AND, ZeroPageX, num))
+                })
+                .or_else(|_| absolute(&right, labels).and_then(|num| ok_word(&AND, Absolute, num)))
+                .or_else(|_| {
+                    absolute_x(&right, labels).and_then(|num| ok_word(&AND, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    absolute_y(&right, labels).and_then(|num| ok_word(&AND, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    indirect_x(&right, labels).and_then(|num| ok_byte(&AND, IndirectX, num))
+                })
+                .or_else(|_| {
+                    indirect_y(&right, labels).and_then(|num| ok_byte(&AND, IndirectY, num))
+                })
+        })
+    })
+}
+
+fn decode_pop(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    sysop(expr)
+        .and_then(|symbol| {
+            if symbol == "]" {
+                ok_none(&PLA, Implied)
+            } else {
+                decode_error(expr)
+            }
+        })
+        .or_else(|_| decode_error(expr))
+}
+
+/**
  * T=A-??? -> CMP ???
  * T=X-??? -> CPX ???
  * T=Y-??? -> CPY ???
@@ -206,16 +295,18 @@ fn decode_cpy(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
 }
 
 pub fn decode_flags(
-    command: &str,
+    command: &Expr,
     expr: &Expr,
     _labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
-    decimal(expr).and_then(|num| match (command, num) {
-        ("C", 0) => ok_none(&CLC, Implied),
-        ("C", 1) => ok_none(&SEC, Implied),
-        ("I", 0) => ok_none(&CLI, Implied),
-        ("I", 1) => ok_none(&SEI, Implied),
-        _ => decode_error(expr),
+    identifier(command).and_then(|register| {
+        decimal(expr).and_then(|num| match (register.as_str(), num) {
+            ("C", 0) => ok_none(&CLC, Implied),
+            ("C", 1) => ok_none(&SEC, Implied),
+            ("I", 0) => ok_none(&CLI, Implied),
+            ("I", 1) => ok_none(&SEI, Implied),
+            _ => decode_error(expr),
+        })
     })
 }
 
@@ -288,6 +379,68 @@ fn if_condition_mnemonic(symbol: &str) -> Result<Mnemonic, AssemblyError> {
     }
 }
 
+pub fn decode_shift(
+    command: &Expr,
+    expr: &Expr,
+    labels: &LabelTable,
+) -> Result<AssemblyInstruction, AssemblyError> {
+    sysop(command)
+        .and_then(|symbol| match symbol.as_str() {
+            "<" => decode_asl(&expr, labels),
+            ">" => decode_lsr(&expr, labels),
+            "(" => decode_rol(&expr, labels),
+            ")" => decode_ror(&expr, labels),
+            _ => decode_error(expr),
+        })
+        .or_else(|_| decode_error(command))
+}
+
+pub fn decode_push(expr: &Expr) -> Result<AssemblyInstruction, AssemblyError> {
+    register_a(expr)
+        .and_then(|_| ok_none(&PHA, Implied))
+        .or_else(|_| decode_error(expr))
+}
+
+fn decode_asl(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    register_a(expr)
+        .and_then(|_| ok_none(&ASL, Accumulator))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&ASL, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&ASL, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&ASL, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&ASL, AbsoluteX, num)))
+        .or_else(|_| decode_error(expr))
+}
+
+fn decode_lsr(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    register_a(expr)
+        .and_then(|_| ok_none(&LSR, Accumulator))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&LSR, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&LSR, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LSR, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&LSR, AbsoluteX, num)))
+        .or_else(|_| decode_error(expr))
+}
+
+fn decode_rol(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    register_a(expr)
+        .and_then(|_| ok_none(&ROL, Accumulator))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&ROL, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&ROL, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&ROL, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&ROL, AbsoluteX, num)))
+        .or_else(|_| decode_error(expr))
+}
+
+fn decode_ror(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    register_a(expr)
+        .and_then(|_| ok_none(&ROR, Accumulator))
+        .or_else(|_| zeropage(expr, labels).and_then(|num| ok_byte(&ROR, ZeroPage, num)))
+        .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&ROR, ZeroPageX, num)))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&ROR, Absolute, num)))
+        .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&ROR, AbsoluteX, num)))
+        .or_else(|_| decode_error(expr))
+}
+
 pub fn decode_address(
     command: &Expr,
     expr: &Expr,
@@ -297,7 +450,36 @@ pub fn decode_address(
         .and_then(|_| decode_sta(command, labels))
         .or_else(|_| register_x(expr).and_then(|_| decode_stx(command, labels)))
         .or_else(|_| register_y(expr).and_then(|_| decode_sty(command, labels)))
+        .or_else(|_| {
+            sysop(expr).and_then(|op| {
+                if op == "+" {
+                    decode_inc(command, labels)
+                } else if op == "-" {
+                    decode_dec(command, labels)
+                } else {
+                    decode_error(expr)
+                }
+            })
+        })
         .or_else(|_| decode_error(expr))
+}
+
+fn decode_inc(command: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    zeropage(command, labels)
+        .and_then(|num| ok_byte(&INC, ZeroPage, num))
+        .or_else(|_| zeropage_x(command, labels).and_then(|num| ok_byte(&INC, ZeroPageX, num)))
+        .or_else(|_| absolute(command, labels).and_then(|num| ok_word(&INC, Absolute, num)))
+        .or_else(|_| absolute_x(command, labels).and_then(|num| ok_word(&INC, AbsoluteX, num)))
+        .or_else(|_| decode_error(command))
+}
+
+fn decode_dec(command: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    zeropage(command, labels)
+        .and_then(|num| ok_byte(&DEC, ZeroPage, num))
+        .or_else(|_| zeropage_x(command, labels).and_then(|num| ok_byte(&DEC, ZeroPageX, num)))
+        .or_else(|_| absolute(command, labels).and_then(|num| ok_word(&DEC, Absolute, num)))
+        .or_else(|_| absolute_x(command, labels).and_then(|num| ok_word(&DEC, AbsoluteX, num)))
+        .or_else(|_| decode_error(command))
 }
 
 /**
