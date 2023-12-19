@@ -41,13 +41,6 @@ fn decimal8bit(expr: &Expr) -> Result<u8, AssemblyError> {
     })
 }
 
-pub fn string(expr: &Expr) -> Result<String, AssemblyError> {
-    match expr {
-        Expr::StringLiteral(s) => Ok(s.to_string()),
-        _ => syntax_error("invalid string"),
-    }
-}
-
 pub fn identifier(expr: &Expr) -> Result<String, AssemblyError> {
     match expr {
         Expr::Identifier(s) => Ok(s.to_string()),
@@ -136,45 +129,17 @@ pub fn minus(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
     }
 }
 
-pub fn multiply(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
+pub fn or(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
     match expr {
-        Expr::BinOp(left, Operator::Mul, right) => ok2(left, right),
-        _ => syntax_error("invalid multiply"),
+        Expr::BinOp(left, Operator::Or, right) => ok2(left, right),
+        _ => syntax_error("invalid or"),
     }
 }
 
-pub fn divide(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
+pub fn and(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
     match expr {
-        Expr::BinOp(left, Operator::Div, right) => ok2(left, right),
-        _ => syntax_error("invalid divide"),
-    }
-}
-
-pub fn equal(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
-    match expr {
-        Expr::BinOp(left, Operator::Equal, right) => ok2(left, right),
-        _ => syntax_error("invalid equal"),
-    }
-}
-
-pub fn not_equal(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
-    match expr {
-        Expr::BinOp(left, Operator::NotEqual, right) => ok2(left, right),
-        _ => syntax_error("invalid not equal"),
-    }
-}
-
-pub fn greater(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
-    match expr {
-        Expr::BinOp(left, Operator::Greater, right) => ok2(left, right),
-        _ => syntax_error("invalid greater"),
-    }
-}
-
-pub fn less(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
-    match expr {
-        Expr::BinOp(left, Operator::Less, right) => ok2(left, right),
-        _ => syntax_error("invalid less"),
+        Expr::BinOp(left, Operator::And, right) => ok2(left, right),
+        _ => syntax_error("invalid and"),
     }
 }
 
@@ -196,13 +161,6 @@ pub fn sysop(expr: &Expr) -> Result<String, AssemblyError> {
     match expr {
         Expr::SystemOperator(c) => Ok(c.to_string()),
         _ => syntax_error("invalid system operator"),
-    }
-}
-
-pub fn empty(expr: &Expr) -> Result<(), AssemblyError> {
-    match expr {
-        Expr::Empty => Ok(()),
-        _ => syntax_error("invalid empty"),
     }
 }
 

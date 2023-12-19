@@ -58,18 +58,23 @@ impl Statement {
     }
 
     pub fn decode(&self, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
-        let command = self.command()?;
         let expr = &self.expression;
-        match command.as_str() {
-            "X" => decode_x(&expr, labels),
-            "Y" => decode_y(&expr, labels),
-            "A" => decode_a(&expr, labels),
-            "T" => decode_t(&expr, labels),
-            "C" | "I" => decode_flags(&command, &expr, labels),
-            "S" => decode_stack(&expr, labels),
-            "!" => decode_call(&expr, labels),
-            "#" => decode_goto(&expr, labels),
-            ";" => decode_if(&expr, labels),
+        match &self.command {
+            Expr::Identifier(sym) if sym == "X" => decode_x(&expr, labels),
+            Expr::Identifier(sym) if sym == "Y" => decode_y(&expr, labels),
+            Expr::Identifier(sym) if sym == "A" => decode_a(&expr, labels),
+            Expr::Identifier(sym) if sym == "T" => decode_t(&expr, labels),
+            Expr::Identifier(sym) if "CI".contains(sym) => {
+                decode_flags(&self.command, &expr, labels)
+            }
+            Expr::Identifier(sym) if sym == "S" => decode_stack(&expr, labels),
+            Expr::SystemOperator(sym) if sym == "!" => decode_call(&expr, labels),
+            Expr::SystemOperator(sym) if sym == "#" => decode_goto(&expr, labels),
+            Expr::SystemOperator(sym) if sym == ";" => decode_if(&expr, labels),
+            Expr::SystemOperator(sym) if "<>()".contains(sym) => {
+                decode_shift(&self.command, &expr, labels)
+            }
+            Expr::SystemOperator(sym) if sym == "[" => decode_push(&expr),
             _ => decode_address(&self.command, &expr, labels),
         }
     }
@@ -141,8 +146,6 @@ impl Statement {
                 }
             }
             if let Address::ZeroPage(address) = entry.address {
-                dbg!(address);
-                dbg!(mode);
                 match mode {
                     AddressingMode::ZeroPage
                     | AddressingMode::ZeroPageX

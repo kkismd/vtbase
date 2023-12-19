@@ -187,10 +187,10 @@ fn parse_expr(input: &str) -> IResult<&str, Expr> {
         parse_char,
         parse_hibyte,
         parse_lobyte,
-        parse_sysop,
         parse_identifier,
         parse_parenthesized,
         parse_bracketed,
+        parse_sysop,
         parse_string_literal,
     ))(input)
 }
@@ -203,10 +203,10 @@ fn parse_term(input: &str) -> IResult<&str, Expr> {
         parse_char,
         parse_hibyte,
         parse_lobyte,
-        parse_sysop,
         parse_identifier,
         parse_parenthesized,
         parse_bracketed,
+        parse_sysop,
         parse_string_literal,
     ))(input)
 }
@@ -321,7 +321,7 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        many1(one_of("-<>=/+_#\\!^:;*@?$&")),
+        many1(one_of("-<>=/+_#\\!^:;*@?$&()[]")),
         |v: Vec<char>| -> Result<Expr, ParseIntError> {
             let s: String = v.into_iter().collect();
             Ok(Expr::SystemOperator(s))
