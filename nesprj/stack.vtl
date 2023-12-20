@@ -54,7 +54,16 @@ put     (1+X)=A                 ;; PUT:    STA  1,X
         (0+X)=A                 ;;         STA  0,X
         #=!                     ;;         RTS
 
+swap    A=(0+X)                 ;; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
+        Y=(2+X)                 ;;         LDY  2,X
+        (2+X)=A                 ;;         STA  2,X
+        (0+X)=Y                 ;;         STY  0,X
 
+        A=(1+X)                 ;;         LDA  1,X
+        Y=(3+X)                 ;;         LDY  3,X
+        (3+X)=A                 ;;         STA  3,X
+        (1+X)=Y                 ;;         STY  1,X
+        #=!                     ;;         RTS
 
 ;; multiply                     ( n1 n2 -- n1*n2 )
 star    A=Y [=A                 ;; STAR:   PHY
@@ -149,7 +158,7 @@ locate
         !=plus                  ;; + x
 
         ;; ネームテーブルの先頭アドレスをスタックに積む
-        X=--                    ;; スタックのボトムセルは $fe + $ff
+        X=--
         A=>VRAM_NAME_TBL
         (1+X)=A
         A=<VRAM_NAME_TBL
@@ -162,4 +171,120 @@ locate
         A=(0+X)                 ;; アドレス下位
         (PPU_VRAM_ADDR2)=A      ;;  
 
+        X=++                    ;; スタックを解放
+
         #=!
+
+;; スタックに積まれた1byteをhex2文字に変換する
+;; ( b -- c-hi c-lo )
+numhex
+        X=--                    ;; スタックを1段深くする
+        A=[2]                   ;; nを読み込む
+        >=A >=A >=A >=A         ;; 上位4bitを下位にずらす
+        !=.hexchar              ;; 文字に変換
+        [0]=A                   ;; スタックトップに置く
+        A=0
+        [1]=A
+        A=[2]                   ;; もう一度nを取り出す
+        !=.hexchar              ;; 文字に変換
+        [2]=A                   ;; スタック2段目に置く
+        A=0
+        [3]=A
+        #=!                     ;; 終わり
+
+;; Aレジスタ下位4bitの値を0-Fの文字に変換する
+.hexchar
+        A=A&$0f                 ;; 上位4bitをマスクする
+        ;=A>$A A=A+7
+        A=A+$30
+        #=!
+
+;; スタックに積まれた1byteをhex2文字で出力する
+;; ( b -- )
+print_hex
+        !=numhex
+        !=.print_ch2
+        #=!
+;; スタックトップと2段目の2文字を表示する
+;; ( c2 c1 -- )
+.print_ch2
+        A=[0]                   ;; 1文字目を出力
+        X=++
+        (PPU_VRAM_IO)=A
+        A=[0]                   ;; 2文字目
+        X=++
+        (PPU_VRAM_IO)=A
+        #=!
+
+;; Aレジスタの値をスタックにプッシュする
+;; 上位バイトはゼロ埋め
+push_a
+        X=--
+        [0]=A
+        A=0
+        [1]=A
+        #=!
+
+;; スタックの1段、2段、3段の内容を画面右上に表示する
+show_stack
+        ;; 座標(26,0)に移動
+        A=26
+        !=push_a
+        A=0
+        !=push_a
+        !=locate
+        A='1'
+        (PPU_VRAM_IO)=A
+        A=':'
+        (PPU_VRAM_IO)=A
+
+        ;; スタックトップを表示
+        !=dup
+        A=[1]                   ;; hi -> lo
+        [0]=A
+        !=print_hex
+        !=dup
+        !=print_hex
+
+        ;; (26,1)に移動
+        A=26
+        !=push_a
+        A=1
+        !=push_a
+        !=locate
+        A='2'
+        (PPU_VRAM_IO)=A
+        A=':'
+        (PPU_VRAM_IO)=A
+        ;; 2段目を表示
+        !=over
+        A=[1]                   ;; hi -> lo
+        [0]=A
+        !=print_hex
+        !=over
+        !=print_hex
+
+        ;; (26,2)に移動
+        A=26
+        !=push_a
+        A=2
+        !=push_a
+        !=locate
+        A='3'
+        (PPU_VRAM_IO)=A
+        A=':'
+        (PPU_VRAM_IO)=A
+        ;; 3段目を表示
+        X=--
+        A=[6]                   ;; (pushしたので4段目)をトップにコピー
+        [0]=A
+        A=[7]
+        [1]=A
+        !=dup                   ;; さらにコピー
+        A=[1]                   ;; hi -> lo
+        [0]=A
+        !=print_hex
+        !=print_hex
+
+        #=!
+

@@ -59,8 +59,7 @@ pub fn parse_from_file(file: &File, file_path: PathBuf) -> Result<Vec<Line>, Ass
     let include_reader = IncludeReader::new(reader, file_path);
     let mut lines = Vec::new();
 
-    for (num, line) in include_reader.lines().enumerate() {
-        let res = line;
+    for (num, res) in include_reader.lines().enumerate() {
         if let Ok(line) = res {
             let line = parse_line(line, num + 1)?;
             lines.push(line);

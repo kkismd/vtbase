@@ -67,71 +67,37 @@ main
 
         X=$00                   ;; データスタックポインタを初期化
 
-        ;; 座標(8, 12)をスタックに積む
-        X=--                    ;; x座標
-        A=0
-        [1]=A
-        A=8
-        [0]=A
-
-        X=--                    ;; y座標
-        A=0
-        [1]=A
-        A=12
-        [0]=A
-
-        !=locate
-
-        !=two                   ;; スタックに2を積む
-        !=numhex                ;; 文字 '01' に変換する
-        A=[0]                   ;; 1文字目を出力
-        (PPU_VRAM_IO)=A
-        A=[2]                   ;; 2文字目
-        (PPU_VRAM_IO)=A
-        X=++++                  ;; スタックをクリア
-
-        A='@'
-        (PPU_VRAM_IO)=A
-        A='C'
-        (PPU_VRAM_IO)=A
-        A='a'
-        (PPU_VRAM_IO)=A
-        A='k'
-        (PPU_VRAM_IO)=A
-        A='e'
-        (PPU_VRAM_IO)=A
+        X=--
+        A=$34 [0]=A
+        A=$12 [1]=A
+        X=--
+        A=$78 [0]=A
+        A=$56 [1]=A
+        X=--
+        A=$bc [0]=A
+        A=$9a [1]=A
+        !=rot
+        !=show_stack
 
         #=!
 
         ;; include stack related library
         +="stack.vtl"
 
-;; スタックに積まれた1byteをhex2文字に変換する
-;; ( n -- c-hi c-lo )
-numhex
-        X=--            ;; スタックを1段深くする
-        A=[2]           ;; nを取り出す
-        >=A >=A         ;; 上位4bitを下位にずらす
-        >=A >=A
-        !=hexchar       ;;
-        [0]=A           ;; スタックトップに置く
-        A=0
-        [1]=A
-        A=[2]           ;; もう一度nを取り出す
-        !=hexchar       ;; 文字に変換
-        [2]=A           ;; スタック2段目に置く
-        A=0
-        [3]=A
-        #=!             ;; 終わり
-
-
-;; Aレジスタ下位4bitの値を0-Fの文字に変換する
-hexchar
-        A=A&$0f                 ;; 上位4bitをマスクする
-        ;=A>$A A=A+7
-        A=A+$30
-        #=!
-
+rot     Y=(0+X)                 ;; ROT:    LDY  0,X        ; ROTate the three top data-stack cells, pulling the one
+        A=(4+X)                 ;;         LDA  4,X        ; farthest down to the top.     ( n1 n2 n3 -- n2 n3 n1 )
+        (0+X)=A                 ;;         STA  0,X
+        A=(2+X)                 ;;         LDA  2,X  
+        (4+X)=A                 ;;         STA  4,X
+        (2+X)=Y                 ;;         STY  2,X
+                                ;; 
+        Y=(1+X)                 ;;         LDY  1,X
+        A=(5+X)                 ;;         LDA  5,X
+        (1+X)=A                 ;;         STA  1,X
+        A=(3+X)                 ;;         LDA  3,X
+        (5+X)=A                 ;;         STA  5,X
+        (1+X)=Y                 ;;         STY  1,X
+        #=!                     ;;         RTS
 
 ;; ------------------------------------------------------------------------
 ;; data area
