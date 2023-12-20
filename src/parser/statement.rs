@@ -12,10 +12,13 @@ pub struct Statement {
     pub command: Expr,
     pub expression: Expr,
 }
-
 impl Statement {
     pub fn new(command: &str, expression: Expr) -> Self {
-        let command = Expr::Identifier(command.to_string());
+        let command = if command.chars().all(|c| c.is_alphanumeric()) {
+            Expr::Identifier(command.to_string())
+        } else {
+            Expr::SystemOperator(command.to_string())
+        };
         Self {
             command,
             expression,

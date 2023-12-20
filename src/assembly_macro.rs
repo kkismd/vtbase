@@ -94,10 +94,7 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
         let lhs = Box::new(Expr::SystemOperator(sysop.to_string()));
         let rhs = Box::new(Expr::Identifier(macro_label.to_string()));
         let expr2 = Expr::BinOp(lhs, Operator::Comma, rhs);
-        let stmt2 = Statement {
-            command: Expr::SystemOperator(";".to_string()),
-            expression: expr2,
-        };
+        let stmt2 = Statement::new(";", expr2);
         let inst2 = Line::new(line.line_number, line.address, None, vec![stmt2], vec![]);
         result.push(inst2);
 
