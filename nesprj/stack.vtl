@@ -65,6 +65,38 @@ swap    A=(0+X)                 ;; SWAP:   LDA  0,X        ; Swap the top two da
         (1+X)=Y                 ;;         STY  1,X
         #=!                     ;;         RTS
 
+;; Store n at addr.
+;; ( n addr -- )  
+store   A=(2+X)                 ;; STORE:  LDA  2,X
+        [0+X]=A                 ;;         STA  (0,X)
+        (0+X)=+                 ;;         INC  0,X
+        ;=\,.st1                ;;         BNE  st1$
+        (1+X)=+                 ;;         INC  1,X
+.st1    A=(3+X)                 ;;  st1$:  LDA  3,X
+.st2    [0+X]=A                 ;;  st2$:  STA  (0,X)
+        X=++++                  ;;         POP2
+        #=!                     ;;         RTS
+
+
+rrot    !=rot
+
+;; ROTate the three top data-stack cells, pulling the one farthest down to the top.
+;; ( n1 n2 n3 -- n2 n3 n1 )
+rot     Y=(0+X)                 ;; ROT:    LDY  0,X          01 23 45
+        A=(4+X)                 ;;         LDA  4,X     (1)  n3 n2 n1
+        (0+X)=A                 ;;         STA  0,X     (2)  n1 n2 n1   4->0
+        A=(2+X)                 ;;         LDA  2,X        
+        (4+X)=A                 ;;         STA  4,X     (3)  n1 n2 n2   2->4
+        (2+X)=Y                 ;;         STY  2,X     (4)  n1 n3 n2   0->2
+                                ;; 
+        Y=(1+X)                 ;;         LDY  1,X
+        A=(5+X)                 ;;         LDA  5,X     (1)  n3 n2 n1
+        (1+X)=A                 ;;         STA  1,X     (2)  n1 n2 n1   5->1
+        A=(3+X)                 ;;         LDA  3,X
+        (5+X)=A                 ;;         STA  5,X     (3)  n1 n2 n2   3->5
+        (3+X)=Y                 ;;         STY  3,X     (4)  n1 n3 n2   1->3
+        #=!                     ;;         RTS
+
 ;; multiply                     ( n1 n2 -- n1*n2 )
 star    A=Y [=A                 ;; STAR:   PHY
         A=0 (N)=A               ;;         STZ  N
