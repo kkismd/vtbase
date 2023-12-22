@@ -68,36 +68,21 @@ main
         X=$00                   ;; データスタックポインタを初期化
 
         X=--
-        A=$34 [0]=A
-        A=$12 [1]=A
+        A=$11 [0]=A
+        A=$11 [1]=A
         X=--
-        A=$78 [0]=A
-        A=$56 [1]=A
+        A=$22 [0]=A
+        A=$22 [1]=A
         X=--
-        A=$bc [0]=A
-        A=$9a [1]=A
-        !=rot
+        A=$33 [0]=A
+        A=$33 [1]=A
+        !=rrot
         !=show_stack
 
         #=!
 
         ;; include stack related library
         +="stack.vtl"
-
-rot     Y=(0+X)                 ;; ROT:    LDY  0,X        ; ROTate the three top data-stack cells, pulling the one
-        A=(4+X)                 ;;         LDA  4,X        ; farthest down to the top.     ( n1 n2 n3 -- n2 n3 n1 )
-        (0+X)=A                 ;;         STA  0,X
-        A=(2+X)                 ;;         LDA  2,X  
-        (4+X)=A                 ;;         STA  4,X
-        (2+X)=Y                 ;;         STY  2,X
-                                ;; 
-        Y=(1+X)                 ;;         LDY  1,X
-        A=(5+X)                 ;;         LDA  5,X
-        (1+X)=A                 ;;         STA  1,X
-        A=(3+X)                 ;;         LDA  3,X
-        (5+X)=A                 ;;         STA  5,X
-        (1+X)=Y                 ;;         STY  1,X
-        #=!                     ;;         RTS
 
 ;; ------------------------------------------------------------------------
 ;; data area
