@@ -47,17 +47,9 @@ impl Statement {
     // それ以外の二項演算子の場合はマクロ
     pub fn check_macro_if_statement(&self) -> bool {
         match &self.expression {
-            Expr::BinOp(left, operator, _) => {
-                if let Expr::SystemOperator(_) = **left {
-                    if *operator == Operator::Comma {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            _ => (),
+            Expr::BinOp(_, Operator::Comma, _) => false,
+            _ => true,
         }
-        false
     }
 
     pub fn decode(&self, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {

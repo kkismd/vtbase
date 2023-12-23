@@ -164,6 +164,14 @@ pub fn sysop(expr: &Expr) -> Result<String, AssemblyError> {
     }
 }
 
+pub fn sysop_or_identifier(expr: &Expr) -> Result<String, AssemblyError> {
+    match expr {
+        Expr::SystemOperator(c) => Ok(c.to_string()),
+        Expr::Identifier(s) => Ok(s.to_string()),
+        _ => syntax_error("invalid system operator or identifier"),
+    }
+}
+
 fn syntax_error<T>(msg: &str) -> Result<T, AssemblyError> {
     Err(AssemblyError::syntax(msg))
 }

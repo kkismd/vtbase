@@ -355,7 +355,7 @@ pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstructio
     // ;=\,$12fd (IF NOT EQUAL THEN GOTO $12FD)
     comma(expr)
         .and_then(|(left, right)| {
-            sysop(&left).and_then(|symbol| {
+            sysop_or_identifier(&left).and_then(|symbol| {
                 if_condition_mnemonic(&symbol).and_then(|mnemonic| {
                     num16bit(&right)
                         .and_then(|addr| ok_unresolved_relative(mnemonic.clone(), Relative, addr))
@@ -371,10 +371,14 @@ pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstructio
 
 fn if_condition_mnemonic(symbol: &str) -> Result<Mnemonic, AssemblyError> {
     match symbol {
-        "\\" => Ok(BNE),
-        "=" => Ok(BEQ),
-        ">" => Ok(BCS),
-        "<" => Ok(BCC),
+        "\\" | "/" | "!" | "NE" => Ok(BNE),
+        "=" | "EQ" => Ok(BEQ),
+        ">" | "CS" | "GE" => Ok(BCS),
+        "<" | "CC" | "LT" => Ok(BCC),
+        "-" | "MI" => Ok(BMI),
+        "+" | "PL" => Ok(BPL),
+        "_" | "VC" => Ok(BVC),
+        "^" | "VS" => Ok(BVS),
         _ => decode_error(&Expr::SystemOperator(symbol.to_string())),
     }
 }
