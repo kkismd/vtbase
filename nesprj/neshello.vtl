@@ -15,19 +15,19 @@ reset                           ;; proc Reset
         (PPU_CTRL1)=A           ;;      sta $2000
         (PPU_CTRL2)=A           ;;      sta $2001
 
-                                ;;; パレットテーブルへ転送(BG用のみ転送)
+                                ;;; パレットテーブルへ転送
         A=>BG_PALETTE_TBL       ;;       lda #$3f
         (PPU_VRAM_ADDR2)=A      ;;       sta $2006
         A=<BG_PALETTE_TBL       ;;       lda #$00
         (PPU_VRAM_ADDR2)=A      ;;       sta $2006
         X=$00                   ;;       ldx #$00
-        Y=$10                   ;;       ldy #$10
+        Y=$20                   ;;       ldy #$10
 copypal                         ;;copypal:
         A=(palettes+X)          ;;       lda palettes, x
         (PPU_VRAM_IO)=A         ;;       sta $2007
         X=+                     ;;       inx
         Y=-                     ;;       dey
-        ;=\,copypal             ;;       bne copypal
+        ;=NE,copypal            ;;       bne copypal
 
                                 ;;; ネームテーブルへ転送(画面の中央付近)
         A=$21                   ;;        lda #$21
@@ -41,7 +41,21 @@ copymap                         ;;copymap:
         (PPU_VRAM_IO)=A         ;;        sta $2007
         X=+                     ;;        inx
         Y=-                     ;;        dey
-        ;=\,copymap             ;;        bne copymap
+        ;=NE,copymap            ;;        bne copymap
+
+                                ;;; アトリビュート設定
+        A=>VRAM_ATTR_TBL        ;; 書き込み先アドレスをセット
+        (PPU_VRAM_ADDR2)=A
+        A=<VRAM_ATTR_TBL
+        (PPU_VRAM_ADDR2)=A
+        A=%11111111             ;; 書き込む値をセット
+        Y=64                    ;; 繰り返し回数をセット
+copyattr
+          (PPU_VRAM_IO)=A       ;; VRAMに書き込み
+          Y=-
+        ;=NE,copyattr
+
+
 
         !=main                  ;; 今回の処理に飛ぶ
 
@@ -88,11 +102,15 @@ main
 ;; data area
                                 ;;; パレットテーブル
 palettes                        ;;palettes:
-        ?=$0f,$30,$00,$10       ;;        .byte        $0f, $00, $10, $20
-        ?=$0f,$06,$16,$26       ;;        .byte        $0f, $06, $16, $26
-        ?=$0f,$30,$00,$10       ;;        .byte        $0f, $08, $18, $28
-        ?=$0f,$0a,$1a,$2a       ;;        .byte        $0f, $0a, $1a, $2a
-                                ;;
+        ?=$0F,$15,$26,$37       ;; bg0 purple/pink
+        ?=$0F,$09,$19,$29       ;; bg1 green
+        ?=$0F,$01,$11,$21       ;; bg2 blue
+        ?=$0F,$30,$10,$00       ;; bg3 greyscale
+        ?=$0F,$18,$28,$38       ;; sp0 yellow
+        ?=$0F,$14,$24,$34       ;; sp1 purple
+        ?=$0F,$1B,$2B,$3B       ;; sp2 teal
+        ?=$0F,$12,$22,$32       ;; sp3 marine
+
                                 ;;; 表示文字列
 string                          ;;string:
         ?="Hello, World!"       ;;        .byte        "HELLO, WORLD!"
