@@ -43,7 +43,7 @@ impl Address {
                         Operator::Div => n / m,
                         Operator::And => n & m,
                         Operator::Or => n | m,
-                        Operator::Xor => n ^ m,
+                        Operator::Eor => n ^ m,
                         _ => return self.type_error(other, &op.to_string()),
                     }))
                 } else if let Address::ZeroPage(m) = other {
@@ -55,7 +55,7 @@ impl Address {
                         Operator::Div => n / (*m as u16),
                         Operator::And => n & (*m as u16),
                         Operator::Or => n | (*m as u16),
-                        Operator::Xor => n ^ (*m as u16),
+                        Operator::Eor => n ^ (*m as u16),
                         _ => return self.type_error(other, &op.to_string()),
                     }))
                 } else {
@@ -71,7 +71,7 @@ impl Address {
                         Operator::Div => n / m,
                         Operator::And => n & m,
                         Operator::Or => n | m,
-                        Operator::Xor => n ^ m,
+                        Operator::Eor => n ^ m,
                         _ => return self.type_error(other, &op.to_string()),
                     }))
                 } else {

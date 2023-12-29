@@ -143,6 +143,13 @@ pub fn and(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
     }
 }
 
+pub fn eor(expr: &Expr) -> Result<(Expr, Expr), AssemblyError> {
+    match expr {
+        Expr::BinOp(left, Operator::Eor, right) => ok2(left, right),
+        _ => syntax_error("invalid and"),
+    }
+}
+
 pub fn parenthesized(expr: &Expr) -> Result<Expr, AssemblyError> {
     match expr {
         Expr::Parenthesized(expr) => Ok(*expr.clone()),

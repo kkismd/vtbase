@@ -44,7 +44,9 @@ pub fn decode_a(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction,
         .or_else(|_| decode_sbc(expr, labels))
         .or_else(|_| decode_ora(expr, labels))
         .or_else(|_| decode_and(expr, labels))
+        .or_else(|_| decode_eor(expr, labels))
         .or_else(|_| decode_pop(expr, labels))
+        .or_else(|_| decode_shift_a(expr))
         .or_else(|_| decode_error(expr))
 }
 
@@ -216,6 +218,32 @@ fn decode_and(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
     })
 }
 
+fn decode_eor(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    eor(expr).and_then(|(left, right)| {
+        register_a(&left).and_then(|_| {
+            immediate(&right, labels)
+                .and_then(|num| ok_byte(&EOR, Immediate, num))
+                .or_else(|_| zeropage(&right, labels).and_then(|num| ok_byte(&EOR, ZeroPage, num)))
+                .or_else(|_| {
+                    zeropage_x(&right, labels).and_then(|num| ok_byte(&EOR, ZeroPageX, num))
+                })
+                .or_else(|_| absolute(&right, labels).and_then(|num| ok_word(&EOR, Absolute, num)))
+                .or_else(|_| {
+                    absolute_x(&right, labels).and_then(|num| ok_word(&EOR, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    absolute_y(&right, labels).and_then(|num| ok_word(&EOR, AbsoluteX, num))
+                })
+                .or_else(|_| {
+                    indirect_x(&right, labels).and_then(|num| ok_byte(&EOR, IndirectX, num))
+                })
+                .or_else(|_| {
+                    indirect_y(&right, labels).and_then(|num| ok_byte(&EOR, IndirectY, num))
+                })
+        })
+    })
+}
+
 fn decode_pop(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     sysop(expr)
         .and_then(|symbol| {
@@ -229,9 +257,30 @@ fn decode_pop(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstruction, 
 }
 
 /**
+ */
+fn decode_shift_a(expr: &Expr) -> Result<AssemblyInstruction, AssemblyError> {
+    sysop(expr)
+        .and_then(|symbol| {
+            if symbol == "<" {
+                ok_none(&ASL, Accumulator)
+            } else if symbol == ">" {
+                ok_none(&LSR, Accumulator)
+            } else if symbol == "(" {
+                ok_none(&ROL, Accumulator)
+            } else if symbol == ")" {
+                ok_none(&ROR, Accumulator)
+            } else {
+                decode_error(expr)
+            }
+        })
+        .or_else(|_| decode_error(expr))
+}
+
+/**
  * T=A-??? -> CMP ???
  * T=X-??? -> CPX ???
  * T=Y-??? -> CPY ???
+ * T=A&??? -> BIT ???
  */
 pub fn decode_t(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
     minus(expr)
@@ -241,6 +290,11 @@ pub fn decode_t(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction,
                 .or_else(|_| register_x(&left).and_then(|_| decode_cpx(&right, labels)))
                 .or_else(|_| register_y(&left).and_then(|_| decode_cpy(&right, labels)))
                 .or_else(|_| decode_error(expr))
+        })
+        .or_else(|_| {
+            and(expr).and_then(|(left, right)| {
+                register_a(&left).and_then(|_| decode_bit(&right, labels))
+            })
         })
         .or_else(|_| decode_error(expr))
 }
@@ -294,6 +348,16 @@ fn decode_cpy(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
         .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&CPY, Absolute, num)))
 }
 
+/**
+ * Zero Page     BIT $44       $24  2   3
+ * Absolute      BIT $4400     $2C  3   4
+ */
+fn decode_bit(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
+    zeropage(expr, labels)
+        .and_then(|num| ok_byte(&BIT, ZeroPage, num))
+        .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&BIT, Absolute, num)))
+}
+
 pub fn decode_flags(
     command: &Expr,
     expr: &Expr,
@@ -305,6 +369,9 @@ pub fn decode_flags(
             ("C", 1) => ok_none(&SEC, Implied),
             ("I", 0) => ok_none(&CLI, Implied),
             ("I", 1) => ok_none(&SEI, Implied),
+            ("V", 0) => ok_none(&CLV, Implied),
+            ("D", 0) => ok_none(&CLD, Implied),
+            ("D", 1) => ok_none(&SED, Implied),
             _ => decode_error(expr),
         })
     })
@@ -315,6 +382,13 @@ pub fn decode_stack(
     _labels: &LabelTable,
 ) -> Result<AssemblyInstruction, AssemblyError> {
     register_x(expr).and_then(|_| ok_none(&TXS, Implied))
+}
+
+pub fn decode_nop(expr: &Expr) -> Result<AssemblyInstruction, AssemblyError> {
+    match expr {
+        Expr::Empty => Ok(AssemblyInstruction::new(NOP, Implied, OperandValue::None)),
+        _ => decode_error(expr),
+    }
 }
 
 /**
@@ -340,6 +414,15 @@ fn sysop_bang(expr: &Expr) -> Result<(), AssemblyError> {
     decode_error(expr)
 }
 
+fn sysop_tilda(expr: &Expr) -> Result<(), AssemblyError> {
+    if let Expr::SystemOperator(c) = expr {
+        if c == "~" {
+            return Ok(());
+        }
+    }
+    decode_error(expr)
+}
+
 pub fn decode_goto(
     expr: &Expr,
     _labels: &LabelTable,
@@ -348,6 +431,7 @@ pub fn decode_goto(
         .and_then(|name| ok_unresolved_label(JMP, Absolute, &name))
         .or_else(|_| num16bit(expr).and_then(|num| ok_word(&JMP, Absolute, num)))
         .or_else(|_| sysop_bang(expr).and_then(|_| ok_none(&RTS, Implied)))
+        .or_else(|_| sysop_tilda(expr).and_then(|_| ok_none(&RTI, Implied)))
         .or_else(|_| decode_error(expr))
 }
 
@@ -671,7 +755,6 @@ fn offset_zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, Assembl
 
 pub fn absolute(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within::<u16>(expr, num16bit)
-        // A=($1F) or A=(31)
         .and_then(|num| Ok(num))
         .or_else(|_| parenthesized(expr).and_then(|expr| absolute_label(&expr, labels)))
 }
@@ -693,9 +776,9 @@ fn full_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
 
 // label+123
 fn offset_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
-    plus(expr).and_then(|(left, right)| {
-        full_label(&left, labels)
-            .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u16)))
+    expr.calculate_address(labels).and_then(|addr| match addr {
+        Address::Full(addr) => Ok(addr),
+        _ => decode_error(expr),
     })
 }
 
@@ -704,67 +787,57 @@ fn offset_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> 
  */
 pub fn zeropage_y(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right)
-            .and_then(|_| {
-                // X=($1F+Y) or X=(31+Y)
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
+        register_y(&right).and_then(|_| {
+            // X=($1F+Y) or X=(31+Y)
+            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
                     // X=(label+Y)
                     zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
+        })
     })
 }
 
 pub fn zeropage_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // X=($1F+X) or X=(31+X)
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
+        register_x(&right).and_then(|_| {
+            // X=($1F+X) or X=(31+X)
+            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
                     // X=(label+X)
                     zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
+        })
     })
 }
 
 pub fn absolute_y(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right)
-            .and_then(|_| {
-                // X=($12FF+Y) or X=(311+Y)
-                num16bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
+        register_y(&right).and_then(|_| {
+            // X=($12FF+Y) or X=(311+Y)
+            num16bit(&left).and_then(|num| Ok(num)).or_else(|_|
                     // X=(label+Y)
                     absolute_label(&left, labels).and_then(|addr| Ok(addr)))
+        })
     })
 }
 
 pub fn absolute_x(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // X=($12FF+X) or X=(311+X)
-                num16bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
+        register_x(&right).and_then(|_| {
+            // X=($12FF+X) or X=(311+X)
+            num16bit(&left).and_then(|num| Ok(num)).or_else(|_|
                     // X=(label+X)
                     absolute_label(&left, labels).and_then(|addr| Ok(addr)))
+        })
     })
 }
 
 // Indirect,X    LDA ($44,X)   A=[$44+X]
 pub fn indirect_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     bracketed_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right)
-            .and_then(|_| {
-                // A=[$1F+X] or A=[31+X]
-                num8bit(&left).and_then(|num| Ok(num))
-            })
-            .or_else(|_|
+        register_x(&right).and_then(|_| {
+            // A=[$1F+X] or A=[31+X]
+            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
                     // A=[label+X]
                     zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
+        })
     })
 }
 
@@ -877,12 +950,19 @@ mod tests {
             },
         );
         // Parenthesized(BinOp(Identifier(\"hello\"), Add, Identifier(\"X\")))
+        let expr = Expr::parse("(label+X)").unwrap();
+        assert_eq!(absolute_x(&expr, &labels), Ok(0x1234));
+    }
+
+    #[test]
+    fn test_address_absolute_x_0x0000() {
+        let labels = LabelTable::new();
         let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
-            Box::new(Expr::Identifier("label".to_string())),
+            Box::new(Expr::WordNum(0x0000)),
             Operator::Add,
             Box::new(Expr::Identifier("X".to_string())),
         )));
-        assert_eq!(absolute_x(&expr, &labels), Ok(0x1234));
+        assert_eq!(absolute_x(&expr, &labels), Ok(0x0000));
     }
 
     #[test]

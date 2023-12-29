@@ -30,7 +30,7 @@ pub enum Operator {
     Div,
     And,
     Or,
-    Xor,
+    Eor,
     Comma,
     Greater,
     Less,
@@ -47,7 +47,7 @@ impl Operator {
             Operator::Div => "/".to_string(),
             Operator::And => "&".to_string(),
             Operator::Or => "|".to_string(),
-            Operator::Xor => "^".to_string(),
+            Operator::Eor => "^".to_string(),
             Operator::Comma => ",".to_string(),
             Operator::Greater => ">".to_string(), // it means '>='
             Operator::Less => "<".to_string(),
@@ -154,7 +154,7 @@ impl Expr {
                     Operator::Div => Ok(left / right),
                     Operator::And => Ok(left & right),
                     Operator::Or => Ok(left | right),
-                    Operator::Xor => Ok(left ^ right),
+                    Operator::Eor => Ok(left ^ right),
                     Operator::Greater => Ok(if left >= right { 1 } else { 0 }),
                     Operator::Less => Ok(if left < right { 1 } else { 0 }),
                     Operator::Equal => Ok(if left == right { 1 } else { 0 }),
@@ -225,7 +225,7 @@ fn parse_operator(input: &str) -> IResult<&str, Operator> {
         map(tag("/"), |_| Operator::Div),
         map(tag("&"), |_| Operator::And),
         map(tag("|"), |_| Operator::Or),
-        map(tag("^"), |_| Operator::Xor),
+        map(tag("^"), |_| Operator::Eor),
         map(tag(","), |_| Operator::Comma),
         map(tag(">"), |_| Operator::Greater),
         map(tag("<"), |_| Operator::Less),
@@ -321,7 +321,7 @@ fn parse_bracketed(input: &str) -> IResult<&str, Expr> {
 
 fn parse_sysop(input: &str) -> IResult<&str, Expr> {
     map_res(
-        many1(one_of("-<>=/+_#\\!^:;*@?$&()[]")),
+        many1(one_of("-<>=/+_#\\!^:;*@?$&~()[]")),
         |v: Vec<char>| -> Result<Expr, ParseIntError> {
             let s: String = v.into_iter().collect();
             Ok(Expr::SystemOperator(s))
@@ -476,5 +476,20 @@ mod tests {
             parse_expr("+-"),
             Ok(("", Expr::SystemOperator("+-".to_string())))
         );
+    }
+
+    #[test]
+    fn test_absolute_x_0x0000() {
+        assert_eq!(
+            parse_expr("$0000+X"),
+            Ok((
+                "",
+                Expr::BinOp(
+                    Box::new(Expr::WordNum(0x0000)),
+                    Operator::Add,
+                    Box::new(Expr::Identifier("X".to_string()))
+                )
+            ))
+        )
     }
 }

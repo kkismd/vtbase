@@ -235,4 +235,20 @@ mod tests {
         let s = "A=1 ;; comment";
         assert_eq!(remove_after_double_semicolon(s), "A=1 ");
     }
+
+    #[test]
+    fn test_shift_a() {
+        let statement = parse_token("A=<").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::SystemOperator('<'.to_string()));
+        let statement = parse_token("A=>").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::SystemOperator('>'.to_string()));
+        let statement = parse_token("A=)").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::SystemOperator(')'.to_string()));
+        let statement = parse_token("A=(").unwrap();
+        assert_eq!(statement.command, Expr::Identifier("A".to_string()));
+        assert_eq!(statement.expression, Expr::SystemOperator('('.to_string()));
+    }
 }
