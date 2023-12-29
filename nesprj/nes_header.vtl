@@ -2,7 +2,7 @@ nes_header                      ;; iNESヘッダ
         ?=$4E,$45,$53,$1A       ;; "NES" Header
         ?=$02                   ;;  PRG-BANKS
         ?=$01                   ;;  CHR-BANKS
-        ?=$01                   ;;  Vetrical Mirror
+        ?=$00                   ;;  horizontal Mirror
         ?=$00                   ;;  
         ?=$00,$00,$00,$00       ;;  
         ?=$00,$00,$00,$00       ;;  
@@ -25,3 +25,7 @@ SCREEN_HEIGHT   :=29
 
 VRAM_NAME_TBL   :=$2000
 VRAM_ATTR_TBL   :=$23c0
+
+APU_DMC_IRQ     :=$4010
+APU_STATUS      :=$4015
+APU_FRAME_CNT   :=$4017

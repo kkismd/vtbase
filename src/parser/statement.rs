@@ -59,10 +59,11 @@ impl Statement {
             Expr::Identifier(sym) if sym == "Y" => decode_y(&expr, labels),
             Expr::Identifier(sym) if sym == "A" => decode_a(&expr, labels),
             Expr::Identifier(sym) if sym == "T" => decode_t(&expr, labels),
-            Expr::Identifier(sym) if "CI".contains(sym) => {
+            Expr::Identifier(sym) if "CIVD".contains(sym) => {
                 decode_flags(&self.command, &expr, labels)
             }
             Expr::Identifier(sym) if sym == "S" => decode_stack(&expr, labels),
+            Expr::Identifier(sym) if sym == "_" => decode_nop(&expr),
             Expr::SystemOperator(sym) if sym == "!" => decode_call(&expr, labels),
             Expr::SystemOperator(sym) if sym == "#" => decode_goto(&expr, labels),
             Expr::SystemOperator(sym) if sym == ";" => decode_if(&expr, labels),
@@ -165,5 +166,91 @@ impl Statement {
     fn absolute_to_relative(address: u16, pc: u16) -> Vec<u8> {
         let diff = address.wrapping_sub(pc) as u8;
         vec![diff as u8]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::assembler::LabelEntry;
+    use crate::opcode::AssemblyInstruction;
+    use crate::opcode::Mnemonic;
+    use crate::parser::parse_token;
+
+    use super::*;
+
+    #[test]
+    fn test_address_absolute_x_0x0000() {
+        let labels = LabelTable::new();
+        let expr = Expr::Parenthesized(Box::new(Expr::BinOp(
+            Box::new(Expr::WordNum(0x0000)),
+            Operator::Add,
+            Box::new(Expr::Identifier("X".to_string())),
+        )));
+        let statement = Statement {
+            command: expr,
+            expression: Expr::Identifier("A".to_string()),
+        };
+        let instruction = statement.decode(&labels).unwrap();
+        assert_eq!(
+            instruction,
+            AssemblyInstruction {
+                mnemonic: Mnemonic::STA,
+                addressing_mode: AddressingMode::AbsoluteX,
+                value: OperandValue::Word(0x0000),
+            }
+        );
+    }
+
+    #[test]
+    fn test_cmp_immediate() {
+        let statement = parse_token("T=A-2").unwrap();
+        let labels = LabelTable::new();
+        let instruction = statement.decode(&labels).unwrap();
+        assert_eq!(
+            instruction,
+            AssemblyInstruction {
+                mnemonic: Mnemonic::CMP,
+                addressing_mode: AddressingMode::Immediate,
+                value: OperandValue::Byte(0x02),
+            }
+        );
+    }
+
+    #[test]
+    fn test_sta_absolute_x() {
+        let statement = parse_token("($0000+X)=A").unwrap();
+        let labels = LabelTable::new();
+        let instruction = statement.decode(&labels).unwrap();
+        assert_eq!(
+            instruction,
+            AssemblyInstruction {
+                mnemonic: Mnemonic::STA,
+                addressing_mode: AddressingMode::AbsoluteX,
+                value: OperandValue::Word(0x0000),
+            }
+        );
+    }
+
+    #[test]
+    fn test_lda_absolute_x_label() {
+        let statement = parse_token("A=(palette+X)").unwrap();
+        let mut labels = LabelTable::new();
+        let label_str = "palette";
+        let entry = LabelEntry {
+            name: label_str.to_string(),
+            line: 0,
+            address: Address::Full(0x0400),
+        };
+        labels.insert(label_str.to_string(), entry);
+        let instruction = statement.decode(&labels).unwrap();
+        assert_eq!(
+            instruction,
+            AssemblyInstruction {
+                mnemonic: Mnemonic::LDA,
+                addressing_mode: AddressingMode::AbsoluteX,
+                value: OperandValue::Word(0x0400),
+            }
+        );
     }
 }

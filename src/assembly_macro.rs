@@ -229,9 +229,9 @@ fn transform_statements(line: &Line) -> Result<Vec<Line>, AssemblyError> {
 
 fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, AssemblyError> {
     let expr = &statement.expression;
-    a_plus_n(expr)
+    a_plus_n(statement)
         .map(|expr| transform_adc_statement(&expr))
-        .or_else(|_| a_minus_n(expr).map(|expr| transform_sbc_statement(&expr)))
+        .or_else(|_| a_minus_n(statement).map(|expr| transform_sbc_statement(&expr)))
         .or_else(|_| inxx(statement).map(|n| transform_xx_statement(n, "X", "+")))
         .or_else(|_| dexx(statement).map(|n| transform_xx_statement(n, "X", "-")))
         .or_else(|_| inyy(statement).map(|n| transform_xx_statement(n, "Y", "+")))
@@ -243,23 +243,29 @@ fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, Assembly
         .or_else(|_| Ok(vec![statement.clone()]))
 }
 
-fn a_plus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
-    match expr {
-        Expr::BinOp(lhs, Operator::Add, rhs) => match **lhs {
-            Expr::Identifier(ref id) if id == "A" => Ok((**rhs).clone()),
-            _ => Err(AssemblyError::MacroError("a_plus_n() ".to_string())),
+fn a_plus_n(statement: &Statement) -> Result<Expr, AssemblyError> {
+    match statement.command {
+        Expr::Identifier(ref id) if id == "A" => match statement.expression.clone() {
+            Expr::BinOp(lhs, Operator::Add, rhs) => match *lhs {
+                Expr::Identifier(ref id) if id == "A" => Ok(*rhs),
+                _ => Err(AssemblyError::MacroError("a_plus_n() ".to_string())),
+            },
+            _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
         },
         _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
     }
 }
 
-fn a_minus_n(expr: &Expr) -> Result<Expr, AssemblyError> {
-    match expr {
-        Expr::BinOp(lhs, Operator::Sub, rhs) => match **lhs {
-            Expr::Identifier(ref id) if id == "A" => Ok((**rhs).clone()),
-            _ => Err(AssemblyError::MacroError("a_minus_n() ".to_string())),
+fn a_minus_n(statement: &Statement) -> Result<Expr, AssemblyError> {
+    match statement.command {
+        Expr::Identifier(ref id) if id == "A" => match statement.expression.clone() {
+            Expr::BinOp(lhs, Operator::Sub, rhs) => match *lhs {
+                Expr::Identifier(ref id) if id == "A" => Ok(*rhs),
+                _ => Err(AssemblyError::MacroError("a_minus_n() ".to_string())),
+            },
+            _ => Err(AssemblyError::MacroError("a_minus_n()".to_string())),
         },
-        _ => Err(AssemblyError::MacroError("a_minus_n()".to_string())),
+        _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
     }
 }
 
