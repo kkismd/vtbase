@@ -80,9 +80,9 @@ reset                           ;; proc Reset
         S=X                     ;;      txs
 
                                 ;;; wait for first vblank
-        T=A&($2002)             ;;      bit $2002
+        T=A&(PPU_STATUS)        ;;      bit $2002
 .1                              ;;      :
-        T=A&($2002)             ;;      bit $2002
+        T=A&(PPU_STATUS)        ;;      bit $2002
         ;=PL,.1                 ;;      bpl :-
 
                                 ;; ; clear all RAM to 0
@@ -111,7 +111,7 @@ reset                           ;; proc Reset
         ;=NE,.3                 ;;         bne :-
                                 ;; ; wait for second vblank
 .4                              ;; :
-        T=A&($2002)             ;;         bit $2002
+        T=A&(PPU_STATUS)        ;;         bit $2002
         ;=PL,.4                 ;;         bpl :-
 
                                 ;; ; NES is initialized, ready to begin!
@@ -138,33 +138,33 @@ nmi                             ;; nmi:
         (nmi_count)=+           ;;     inc nmi_count
                                 ;;     ;
         A=(nmi_ready)           ;;     lda nmi_ready
-        ;=NE,.2                  ;;     bne :+ ; nmi_ready == 0 not ready to update PPU
+        ;=NE,.2                 ;;     bne :+ ; nmi_ready == 0 not ready to update PPU
         #=.ppu_update_end       ;;         jmp @ppu_update_end
 .2                              ;;     :
         T=A-2                   ;;     cmp #2 ; nmi_ready == 2 turns rendering off
         ;=NE,.3                 ;;     bne :+
         A=%00000000             ;;         lda #%00000000
-        ($2001)=A               ;;         sta $2001
+        (PPU_CTRL2)=A           ;;         sta $2001
         X=0                     ;;         ldx #0
         (nmi_ready)=X           ;;         stx nmi_ready
         #=.ppu_update_end       ;;         jmp @ppu_update_end
 .3                              ;;     :
                                 ;;     ; sprite OAM DMA
         X=0                     ;;     ldx #0
-        ($2003)=X               ;;     stx $2003
+        (PPU_SPR_ADDR)=X        ;;     stx $2003
         A=>OAM                  ;;     lda #>oam
         ($4014)=A               ;;     sta $4014
                                 ;;     ; palettes
         A=%10001000             ;;     lda #%10001000
-        ($2000)=A               ;;     sta $2000 ; set horizontal nametable increment
-        A=($2002)               ;;     lda $2002
+        (PPU_CTRL1)=A           ;;     sta $2000 ; set horizontal nametable increment
+        A=(PPU_STATUS)          ;;     lda $2002
         A=$3f                   ;;     lda #$3F
-        ($2006)=A               ;;     sta $2006
-        ($2006)=X               ;;     stx $2006 ; set PPU address to $3F00
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
+        (PPU_VRAM_ADDR2)=X      ;;     stx $2006 ; set PPU address to $3F00
         X=0                     ;;     ldx #0
 .4                              ;;     :
         A=(palette+X)           ;;         lda palette, X
-        ($2007)=A               ;;         sta $2007
+        (PPU_VRAM_IO)=A         ;;         sta $2007
         X=+                     ;;         inx
         T=X-32                  ;;         cpx #32
         ;=CC,.4                 ;;         bcc :-
@@ -174,13 +174,13 @@ nmi                             ;; nmi:
         ;=CS,.scroll            ;;     bcs @scroll
 .nmt_update_loop                ;;     @nmt_update_loop:
         A=(nmt_update+X)        ;;         lda nmt_update, X
-        ($2006)=A               ;;         sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;         sta $2006
         X=+                     ;;         inx
         A=(nmt_update+X)        ;;         lda nmt_update, X
-        ($2006)=A               ;;         sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;         sta $2006
         X=+                     ;;         inx
         A=(nmt_update+X)        ;;         lda nmt_update, X
-        ($2007)=A               ;;         sta $2007
+        (PPU_VRAM_IO)=A         ;;         sta $2007
         X=+                     ;;         inx
         T=X-(nmt_update_len)    ;;         cpx nmt_update_len
         ;=CC,.nmt_update_loop   ;;         bcc @nmt_update_loop
@@ -190,14 +190,14 @@ nmi                             ;; nmi:
         A=(scroll_nmt)          ;;     lda scroll_nmt
         A=A&%00000011           ;;     and #%00000011 ; keep only lowest 2 bits to prevent error
         A=A|%10001000           ;;     ora #%10001000
-        ($2000)=A               ;;     sta $2000
+        (PPU_CTRL1)=A           ;;     sta $2000
         A=(scroll_x)            ;;     lda scroll_x
-        ($2005)=A               ;;     sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;     sta $2005
         A=(scroll_y)            ;;     lda scroll_y
-        ($2005)=A               ;;     sta $2005
+        (PPU_VRAM_ADDR1)=A      ;;     sta $2005
                                 ;;     ; enable rendering
         A=%00011110             ;;     lda #%00011110
-        ($2001)=A               ;;     sta $2001
+        (PPU_CTRL2)=A           ;;     sta $2001
                                 ;;     ; flag PPU update complete
         X=0                     ;;     ldx #0
         (nmi_ready)=X           ;;     stx nmi_ready
@@ -253,13 +253,13 @@ ppu_off                         ;; ppu_off:
                                 ;;;   Y = 64- 95 nametable $2800
                                 ;;;   Y = 96-127 nametable $2C00
 ppu_address_tile                ;; ppu_address_tile:
-        A=($2002)               ;;     lda $2002 ; reset latch
+        A=(PPU_STATUS)               ;;     lda $2002 ; reset latch
         A=Y                     ;;     tya
         A=>                     ;;     lsr
         A=>                     ;;     lsr
         A=>                     ;;     lsr
         A=A|$20                 ;;     ora #$20 ; high bits of Y + $20
-        ($2006)=A               ;;     sta $2006
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
         A=Y                     ;;     tya
         A=<                     ;;     asl
         A=<                     ;;     asl
@@ -269,12 +269,12 @@ ppu_address_tile                ;; ppu_address_tile:
         (temp)=A                ;;     sta temp
         A=X                     ;;     txa
         A=A|(temp)              ;;     ora temp
-        ($2006)=A               ;;     sta $2006 ; low bits of Y + X
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006 ; low bits of Y + X
         #=!                     ;;     rts
 
 
 ;; ppu_update_tile: can be used with rendering on, sets the tile at X/Y to tile A next time you call ppu_update
-ppu_update_tile:
+ppu_update_tile
         [=A                     ;; pha ; temporarily store A on stack
         A=X                     ;; txa
         [=A                     ;; pha ; temporarily store X on stack
@@ -454,7 +454,7 @@ push_d                      ;; push_d:
     #=!                     ;;     rts
 
 push_l                      ;; push_l:
-    (cursor_x)=-             ;;     dec cursor_x
+    (cursor_x)=-            ;;     dec cursor_x
     #=!                     ;;     rts
 
 push_r                      ;; push_r:
@@ -639,18 +639,18 @@ draw_cursor                 ;; draw_cursor:
 
 setup_background            ;; setup_background:
                             ;;     ; first nametable, start by clearing to empty
-    A=($2002)               ;;     lda $2002 ; reset latch
+    A=(PPU_STATUS)          ;;     lda $2002 ; reset latch
     A=$20                   ;;     lda #$20
-    ($2006)=A               ;;     sta $2006
+    (PPU_VRAM_ADDR2)=A      ;;     sta $2006
     A=$00                   ;;     lda #$00
-    ($2006)=A               ;;     sta $2006
+    (PPU_VRAM_ADDR2)=A      ;;     sta $2006
                             ;;     ; empty nametable
     A=0                     ;;     lda #0
     Y=30                    ;;     ldy #30 ; 30 rows
 .1                          ;;     :
     X=32                    ;;         ldx #32 ; 32 columns
 .2                          ;;         :
-    ($2007)=A               ;;             sta $2007
+    (PPU_VRAM_IO)=A         ;;             sta $2007
     X=-                     ;;             dex
     ;=NE,.2                 ;;             bne :-
     Y=-                     ;;         dey
@@ -658,7 +658,7 @@ setup_background            ;; setup_background:
                             ;;     ; set all attributes to 0
     X=64                    ;;     ldx #64 ; 64 bytes
 .3                          ;;     :
-    ($2007)=A               ;;         sta $2007
+    (PPU_VRAM_IO)=A         ;;         sta $2007
     X=-                     ;;         dex
     ;=NE,.3                 ;;         bne :-
                             ;;     ; fill in an area in the middle with 1/2 checkerboard
@@ -672,7 +672,7 @@ setup_background            ;; setup_background:
                             ;;         ; write a line of checkerboard
     X=8                     ;;         ldx #8
 .5                          ;;         :
-    ($2007)=A               ;;             sta $2007
+    (PPU_VRAM_IO)=A         ;;             sta $2007
     A=A^3                   ;;             eor #$3
     X=+                     ;;             inx
     T=X-24                  ;;             cpx #(32-8)
@@ -683,15 +683,15 @@ setup_background            ;; setup_background:
     ;=CC,.4                 ;;         bcc :--
                             ;;     ; second nametable, fill with simple pattern
     A=$24                   ;;     lda #$24
-    ($2006)=A               ;;     sta $2006
+    (PPU_VRAM_ADDR2)=A      ;;     sta $2006
     A=$00                   ;;     lda #$00
-    ($2006)=A               ;;     sta $2006
+    (PPU_VRAM_ADDR2)=A      ;;     sta $2006
     A=$00                   ;;     lda #$00
     Y=30                    ;;     ldy #30
 .6                          ;;     :
     X=32                    ;;         ldx #32
 .7                          ;;         :
-    ($2007)=A               ;;             sta $2007
+    (PPU_VRAM_IO)=A         ;;             sta $2007
                             ;;             clc
     A=A+1                   ;;             adc #1
     A=A&3                   ;;             and #3
@@ -708,7 +708,7 @@ setup_background            ;; setup_background:
 .8                          ;;     :
     X=16                    ;;         ldx #16
 .9                          ;;         :
-    ($2007)=A               ;;             sta $2007
+    (PPU_VRAM_IO)=A         ;;             sta $2007
     X=-                     ;;             dex
     ;=NE,.9                 ;;             bne :-
                             ;;         clc
