@@ -162,9 +162,7 @@ impl OpcodeTable {
                 opcode_table.push(Opcode::new(mnemonic.clone(), addressing_mode, opcode as u8));
             }
         }
-        Self {
-            opcode_table: opcode_table,
-        }
+        Self { opcode_table }
     }
 
     pub fn find(
@@ -177,7 +175,7 @@ impl OpcodeTable {
                 return Ok(opcode);
             }
         }
-        Err(AssemblyError::opcode_not_found(&mnemonic, &addressing_mode))
+        Err(AssemblyError::opcode_not_found(mnemonic, addressing_mode))
     }
 
     fn mnemonics() -> Vec<(Mnemonic, Vec<(AddressingMode, i32)>)> {

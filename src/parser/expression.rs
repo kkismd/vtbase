@@ -38,22 +38,25 @@ pub enum Operator {
     NotEqual,
 }
 
-impl Operator {
-    pub fn to_string(&self) -> String {
-        match self {
-            Operator::Add => "+".to_string(),
-            Operator::Sub => "-".to_string(),
-            Operator::Mul => "*".to_string(),
-            Operator::Div => "/".to_string(),
-            Operator::And => "&".to_string(),
-            Operator::Or => "|".to_string(),
-            Operator::Eor => "^".to_string(),
-            Operator::Comma => ",".to_string(),
-            Operator::Greater => ">".to_string(), // it means '>='
-            Operator::Less => "<".to_string(),
-            Operator::Equal => "=".to_string(),
-            Operator::NotEqual => "\\".to_string(),
-        }
+use std::fmt;
+
+impl fmt::Display for Operator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let symbol = match self {
+            Operator::Add => "+",
+            Operator::Sub => "-",
+            Operator::Mul => "*",
+            Operator::Div => "/",
+            Operator::And => "&",
+            Operator::Or => "|",
+            Operator::Eor => "^",
+            Operator::Comma => ",",
+            Operator::Greater => ">",
+            Operator::Less => "<",
+            Operator::Equal => "=",
+            Operator::NotEqual => "\\",
+        };
+        write!(f, "{}", symbol)
     }
 }
 
@@ -245,7 +248,7 @@ fn parse_decimal(input: &str) -> IResult<&str, Expr> {
 }
 
 fn is_hex_digit(c: char) -> bool {
-    c.is_digit(16)
+    c.is_ascii_hexdigit()
 }
 
 fn parse_hex(input: &str) -> IResult<&str, Expr> {
