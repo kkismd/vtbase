@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // open source file
     let source_file_string = opt.src_file.clone();
     let source_file_path = Path::new(&source_file_string);
-    let source_file = File::open(&source_file_path).expect("can't open source file");
+    let source_file = File::open(source_file_path).expect("can't open source file");
     // output bin file
     let create_file_result = File::create(&opt.obj_file);
     if let Err(e) = create_file_result {

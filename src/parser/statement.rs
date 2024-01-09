@@ -46,32 +46,29 @@ impl Statement {
     // ;=記号,式 の場合はマクロではない
     // それ以外の二項演算子の場合はマクロ
     pub fn check_macro_if_statement(&self) -> bool {
-        match &self.expression {
-            Expr::BinOp(_, Operator::Comma, _) => false,
-            _ => true,
-        }
+        !matches!(&self.expression, Expr::BinOp(_, Operator::Comma, _))
     }
 
     pub fn decode(&self, labels: &LabelTable) -> Result<AssemblyInstruction, AssemblyError> {
         let expr = &self.expression;
         match &self.command {
-            Expr::Identifier(sym) if sym == "X" => decode_x(&expr, labels),
-            Expr::Identifier(sym) if sym == "Y" => decode_y(&expr, labels),
-            Expr::Identifier(sym) if sym == "A" => decode_a(&expr, labels),
-            Expr::Identifier(sym) if sym == "T" => decode_t(&expr, labels),
+            Expr::Identifier(sym) if sym == "X" => decode_x(expr, labels),
+            Expr::Identifier(sym) if sym == "Y" => decode_y(expr, labels),
+            Expr::Identifier(sym) if sym == "A" => decode_a(expr, labels),
+            Expr::Identifier(sym) if sym == "T" => decode_t(expr, labels),
             Expr::Identifier(sym) if "CIVD".contains(sym) => {
-                decode_flags(&self.command, &expr, labels)
+                decode_flags(&self.command, expr, labels)
             }
-            Expr::Identifier(sym) if sym == "S" => decode_stack(&expr, labels),
-            Expr::Identifier(sym) if sym == "_" => decode_nop(&expr),
-            Expr::SystemOperator(sym) if sym == "!" => decode_call(&expr, labels),
-            Expr::SystemOperator(sym) if sym == "#" => decode_goto(&expr, labels),
-            Expr::SystemOperator(sym) if sym == ";" => decode_if(&expr, labels),
+            Expr::Identifier(sym) if sym == "S" => decode_stack(expr, labels),
+            Expr::Identifier(sym) if sym == "_" => decode_nop(expr),
+            Expr::SystemOperator(sym) if sym == "!" => decode_call(expr, labels),
+            Expr::SystemOperator(sym) if sym == "#" => decode_goto(expr, labels),
+            Expr::SystemOperator(sym) if sym == ";" => decode_if(expr, labels),
             Expr::SystemOperator(sym) if "<>()".contains(sym) => {
-                decode_shift(&self.command, &expr, labels)
+                decode_shift(&self.command, expr, labels)
             }
-            Expr::SystemOperator(sym) if sym == "[" => decode_push(&expr),
-            _ => decode_address(&self.command, &expr, labels),
+            Expr::SystemOperator(sym) if sym == "[" => decode_push(expr),
+            _ => decode_address(&self.command, expr, labels),
         }
     }
 
@@ -113,9 +110,9 @@ impl Statement {
             OperandValue::Byte(value) => vec![value],
             OperandValue::Word(value) => vec![value as u8, (value >> 8) as u8],
             OperandValue::UnresolvedLabel(ref name) => self.resolve_label(
-                &name,
+                name,
                 &assembly_instruction.addressing_mode,
-                &labels,
+                labels,
                 current_label,
                 pc,
             )?,
@@ -146,7 +143,7 @@ impl Statement {
                     AddressingMode::ZeroPage
                     | AddressingMode::ZeroPageX
                     | AddressingMode::ZeroPageY => {
-                        return Ok(vec![address as u8]);
+                        return Ok(vec![address]);
                     }
                     _ => (),
                 }
@@ -165,7 +162,7 @@ impl Statement {
 
     fn absolute_to_relative(address: u16, pc: u16) -> Vec<u8> {
         let diff = address.wrapping_sub(pc) as u8;
-        vec![diff as u8]
+        vec![diff]
     }
 }
 

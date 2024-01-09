@@ -474,10 +474,10 @@ pub fn decode_shift(
 ) -> Result<AssemblyInstruction, AssemblyError> {
     sysop(command)
         .and_then(|symbol| match symbol.as_str() {
-            "<" => decode_asl(&expr, labels),
-            ">" => decode_lsr(&expr, labels),
-            "(" => decode_rol(&expr, labels),
-            ")" => decode_ror(&expr, labels),
+            "<" => decode_asl(expr, labels),
+            ">" => decode_lsr(expr, labels),
+            "(" => decode_rol(expr, labels),
+            ")" => decode_ror(expr, labels),
             _ => decode_error(expr),
         })
         .or_else(|_| decode_error(command))
@@ -671,11 +671,11 @@ fn decode_error<T>(expr: &Expr) -> Result<T, AssemblyError> {
 }
 
 pub fn parenthesized_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, AssemblyError> {
-    parenthesized(&expr).and_then(|expr| decoder(&expr))
+    parenthesized(expr).and_then(|expr| decoder(&expr))
 }
 
 pub fn bracketed_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, AssemblyError> {
-    bracketed(&expr).and_then(|expr| decoder(&expr))
+    bracketed(expr).and_then(|expr| decoder(&expr))
 }
 
 /**
@@ -683,7 +683,6 @@ pub fn bracketed_within<T>(expr: &Expr, decoder: Decoder<T>) -> Result<T, Assemb
  */
 pub fn immediate(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     num8bit(expr)
-        .and_then(|num| Ok(num))
         .or_else(|_| zeropage_label(expr, labels))
         .or_else(|_| hi_label(expr, labels))
         .or_else(|_| lo_label(expr, labels))
@@ -698,7 +697,7 @@ fn hi_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
                     Address::Full(addr) => Ok((addr >> 8) as u8),
                     _ => decode_error(expr),
                 })
-                .or_else(|_| Ok(0 as u8))
+                .or(Ok(0_u8))
         })
     })
 }
@@ -711,7 +710,7 @@ fn lo_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
                     Address::Full(addr) => Ok((addr & 0xff) as u8),
                     _ => decode_error(expr),
                 })
-                .or_else(|_| Ok(0 as u8))
+                .or(Ok(0_u8))
         })
     })
 }
@@ -729,7 +728,6 @@ fn lookup(name: &str, labels: &LabelTable) -> Result<LabelEntry, AssemblyError> 
 pub fn zeropage(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within::<u8>(expr, num8bit)
         // A=($1F) or A=(31)
-        .and_then(|num| Ok(num))
         .or_else(|_| parenthesized(expr).and_then(|expr| zeropage_label(&expr, labels)))
 }
 
@@ -749,13 +747,12 @@ fn normal_zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, Assembl
 fn offset_zeropage_label(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     plus(expr).and_then(|(left, right)| {
         normal_zeropage_label(&left, labels)
-            .and_then(|addr| num8bit(&right).and_then(|offset| Ok(addr + offset as u8)))
+            .and_then(|addr| num8bit(&right).map(|offset| addr + offset))
     })
 }
 
 pub fn absolute(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within::<u16>(expr, num16bit)
-        .and_then(|num| Ok(num))
         .or_else(|_| parenthesized(expr).and_then(|expr| absolute_label(&expr, labels)))
 }
 
@@ -770,7 +767,7 @@ fn full_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
                 Address::Full(addr) => Ok(addr),
                 _ => decode_error(expr),
             })
-            .or_else(|_| Ok(0 as u16))
+            .or(Ok(0_u16))
     })
 }
 
@@ -787,57 +784,32 @@ fn offset_label(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> 
  */
 pub fn zeropage_y(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right).and_then(|_| {
-            // X=($1F+Y) or X=(31+Y)
-            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
-                    // X=(label+Y)
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-        })
+        register_y(&right).and_then(|_| num8bit(&left).or_else(|_| zeropage_label(&left, labels)))
     })
 }
 
 pub fn zeropage_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right).and_then(|_| {
-            // X=($1F+X) or X=(31+X)
-            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
-                    // X=(label+X)
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-        })
+        register_x(&right).and_then(|_| num8bit(&left).or_else(|_| zeropage_label(&left, labels)))
     })
 }
 
 pub fn absolute_y(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_y(&right).and_then(|_| {
-            // X=($12FF+Y) or X=(311+Y)
-            num16bit(&left).and_then(|num| Ok(num)).or_else(|_|
-                    // X=(label+Y)
-                    absolute_label(&left, labels).and_then(|addr| Ok(addr)))
-        })
+        register_y(&right).and_then(|_| num16bit(&left).or_else(|_| absolute_label(&left, labels)))
     })
 }
 
 pub fn absolute_x(expr: &Expr, labels: &LabelTable) -> Result<u16, AssemblyError> {
     parenthesized_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right).and_then(|_| {
-            // X=($12FF+X) or X=(311+X)
-            num16bit(&left).and_then(|num| Ok(num)).or_else(|_|
-                    // X=(label+X)
-                    absolute_label(&left, labels).and_then(|addr| Ok(addr)))
-        })
+        register_x(&right).and_then(|_| num16bit(&left).or_else(|_| absolute_label(&left, labels)))
     })
 }
 
 // Indirect,X    LDA ($44,X)   A=[$44+X]
 pub fn indirect_x(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError> {
     bracketed_within(expr, plus).and_then(|(left, right)| {
-        register_x(&right).and_then(|_| {
-            // A=[$1F+X] or A=[31+X]
-            num8bit(&left).and_then(|num| Ok(num)).or_else(|_|
-                    // A=[label+X]
-                    zeropage_label(&left, labels).and_then(|addr| Ok(addr)))
-        })
+        register_x(&right).and_then(|_| num8bit(&left).or_else(|_| zeropage_label(&left, labels)))
     })
 }
 
@@ -846,13 +818,7 @@ pub fn indirect_y(expr: &Expr, labels: &LabelTable) -> Result<u8, AssemblyError>
     plus(expr).and_then(|(ref left, ref right)| {
         // A=[$1F]+Y or A=[31]+Y
         register_y(right).and_then(|_| {
-            bracketed(left).and_then(|num| {
-                // A=[$1F]+Y
-                num8bit(&num).and_then(|addr| Ok(addr)).or_else(|_| {
-                    // A=[31]+Y
-                    zeropage_label(&num, labels).and_then(|addr| Ok(addr))
-                })
-            })
+            bracketed(left).and_then(|num| num8bit(&num).or_else(|_| zeropage_label(&num, labels)))
         })
     })
 }

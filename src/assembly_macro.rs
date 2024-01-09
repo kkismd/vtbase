@@ -20,7 +20,7 @@ pub fn expand(lines: &Vec<Line>) -> Result<Vec<Line>, AssemblyError> {
 }
 
 fn transform_line(line: &Line, stack: &mut Vec<String>) -> Result<Vec<Line>, AssemblyError> {
-    if line.statements.len() == 0 {
+    if line.statements.is_empty() {
         return Ok(vec![line.clone()]);
     }
     let statement = &line.statements[0];
@@ -28,7 +28,7 @@ fn transform_line(line: &Line, stack: &mut Vec<String>) -> Result<Vec<Line>, Ass
     match command.as_str() {
         ";" => transform_if_statement(line),
         "@" => transform_do_statement(line, stack),
-        _ => transform_statements(&line),
+        _ => transform_statements(line),
     }
 }
 
@@ -46,7 +46,7 @@ fn transform_line(line: &Line, stack: &mut Vec<String>) -> Result<Vec<Line>, Ass
  *  #macro_0.1
  */
 fn transform_if_statement(line: &Line) -> Result<Vec<Line>, AssemblyError> {
-    if !(&line.statements[0]).check_macro_if_statement() {
+    if !line.statements[0].check_macro_if_statement() {
         return Ok(vec![line.clone()]);
     }
 
@@ -68,7 +68,7 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
     let cmd = if_stmt.command()?;
     let expr = &if_stmt.expression;
     if cmd != ";" {
-        return Err(AssemblyError::MacroError(format!("invalid command")));
+        return Err(AssemblyError::Macro("invalid command".to_string()));
     }
     if let Expr::BinOp(lhs, op, rhs) = expr {
         // 1st line
@@ -85,7 +85,7 @@ fn expand_if_statement(line: &Line, macro_label: &str) -> Result<Vec<Line>, Asse
             Operator::Less => ">",
             Operator::Greater => "<",
             _ => {
-                return Err(AssemblyError::MacroError(format!(
+                return Err(AssemblyError::Macro(format!(
                     "{:?} expand_if_statement() invalid operator {:?}",
                     line, op
                 )))
@@ -155,7 +155,7 @@ fn transform_do_statement(
         // ループ終了行 @=X>10 の処理
         let label = stack
             .pop()
-            .ok_or(AssemblyError::MacroError(format!("mismatch do loop")))?;
+            .ok_or(AssemblyError::Macro("mismatch do loop".to_string()))?;
         let lines = expand_do_statement(line, &label)?;
         result.extend(lines);
         let stmts = &line.statements[1..];
@@ -187,7 +187,7 @@ fn expand_do_statement(line: &Line, label: &str) -> Result<Vec<Line>, AssemblyEr
             Operator::Less => ">",
             Operator::Greater => "<",
             _ => {
-                return Err(AssemblyError::MacroError(format!(
+                return Err(AssemblyError::Macro(format!(
                     "expand_do_statement() invalid operator {:?}",
                     op
                 )))
@@ -248,11 +248,11 @@ fn a_plus_n(statement: &Statement) -> Result<Expr, AssemblyError> {
         Expr::Identifier(ref id) if id == "A" => match statement.expression.clone() {
             Expr::BinOp(lhs, Operator::Add, rhs) => match *lhs {
                 Expr::Identifier(ref id) if id == "A" => Ok(*rhs),
-                _ => Err(AssemblyError::MacroError("a_plus_n() ".to_string())),
+                _ => Err(AssemblyError::Macro("a_plus_n() ".to_string())),
             },
-            _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
+            _ => Err(AssemblyError::Macro("a_plus_n()".to_string())),
         },
-        _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
+        _ => Err(AssemblyError::Macro("a_plus_n()".to_string())),
     }
 }
 
@@ -261,11 +261,11 @@ fn a_minus_n(statement: &Statement) -> Result<Expr, AssemblyError> {
         Expr::Identifier(ref id) if id == "A" => match statement.expression.clone() {
             Expr::BinOp(lhs, Operator::Sub, rhs) => match *lhs {
                 Expr::Identifier(ref id) if id == "A" => Ok(*rhs),
-                _ => Err(AssemblyError::MacroError("a_minus_n() ".to_string())),
+                _ => Err(AssemblyError::Macro("a_minus_n() ".to_string())),
             },
-            _ => Err(AssemblyError::MacroError("a_minus_n()".to_string())),
+            _ => Err(AssemblyError::Macro("a_minus_n()".to_string())),
         },
-        _ => Err(AssemblyError::MacroError("a_plus_n()".to_string())),
+        _ => Err(AssemblyError::Macro("a_plus_n()".to_string())),
     }
 }
 
@@ -274,9 +274,9 @@ fn stack_from(statement: &Statement) -> Result<u16, AssemblyError> {
     match statement.expression.clone() {
         Expr::Bracketed(expr) => match *expr {
             Expr::DecimalNum(n) => Ok(n),
-            _ => Err(AssemblyError::MacroError("stack_from()".to_string())),
+            _ => Err(AssemblyError::Macro("stack_from()".to_string())),
         },
-        _ => Err(AssemblyError::MacroError("stack_from()".to_string())),
+        _ => Err(AssemblyError::Macro("stack_from()".to_string())),
     }
 }
 
@@ -285,9 +285,9 @@ fn stack_to(statement: &Statement) -> Result<u16, AssemblyError> {
     match statement.command.clone() {
         Expr::Bracketed(expr) => match *expr {
             Expr::DecimalNum(n) => Ok(n),
-            _ => Err(AssemblyError::MacroError("stack_to()".to_string())),
+            _ => Err(AssemblyError::Macro("stack_to()".to_string())),
         },
-        _ => Err(AssemblyError::MacroError("stack_to()".to_string())),
+        _ => Err(AssemblyError::Macro("stack_to()".to_string())),
     }
 }
 
@@ -300,10 +300,10 @@ fn process_xx(
     let re = Regex::new(op_pattern).unwrap();
     match statement.command.clone() {
         Expr::Identifier(command) if command == cmd => match &statement.expression {
-            Expr::SystemOperator(op) if re.is_match(&op) => Ok(op.len()),
-            _ => Err(AssemblyError::MacroError(error_msg.to_string())),
+            Expr::SystemOperator(op) if re.is_match(op) => Ok(op.len()),
+            _ => Err(AssemblyError::Macro(error_msg.to_string())),
         },
-        _ => Err(AssemblyError::MacroError(error_msg.to_string())),
+        _ => Err(AssemblyError::Macro(error_msg.to_string())),
     }
 }
 

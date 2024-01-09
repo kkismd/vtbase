@@ -13,7 +13,7 @@ impl<R: BufRead> IncludeReader<R> {
         IncludeReader {
             reader,
             include_stack: Vec::new(),
-            current_path: current_path,
+            current_path,
         }
     }
 
@@ -40,7 +40,7 @@ impl<R: BufRead> Iterator for IncludeReader<R> {
                     Ok(_) => {
                         if let Some(filename) = detect_include_directive(&line) {
                             let path = self.current_path.join(&filename);
-                            if let Ok(file) = File::open(&Path::new(&path)) {
+                            if let Ok(file) = File::open(Path::new(&path)) {
                                 let reader = BufReader::new(file);
                                 self.include_stack.push(Box::new(reader.lines()));
                             } else {

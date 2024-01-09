@@ -76,7 +76,7 @@ fn parse_line(line: String, line_num: usize) -> Result<Line, AssemblyError> {
     let body = cap.name("body").map_or("", |m| m.as_str());
     let tokens = tokenize(body);
     let statements =
-        parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, &e.message()))?;
+        parse_statements(tokens).map_err(|e| AssemblyError::line(line_num, e.message()))?;
     Ok(Line::new(
         line_num,
         0,
@@ -89,8 +89,7 @@ fn parse_line(line: String, line_num: usize) -> Result<Line, AssemblyError> {
 // source line format
 fn match_line(line: &str, line_num: usize) -> Result<Captures, AssemblyError> {
     let re = Regex::new(r"^(?<label>[.a-zA-Z][a-zA-Z0-9_]*)?(?<body>\s+.*)?").unwrap();
-    re.captures(&line)
-        .ok_or(AssemblyError::line(line_num, &line))
+    re.captures(line).ok_or(AssemblyError::line(line_num, line))
 }
 
 fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, AssemblyError> {
@@ -106,14 +105,14 @@ fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
     let assignment_pattern = Regex::new(r"^(?P<command>[^=]+)=(?P<operand>.+)$").unwrap();
     let single_pattern = Regex::new(r"(?P<command>\S)").unwrap();
     let cap = assignment_pattern
-        .captures(&token)
-        .or_else(|| single_pattern.captures(&token))
+        .captures(token)
+        .or_else(|| single_pattern.captures(token))
         .ok_or(AssemblyError::token(token))?;
     let command = cap
         .name("command")
         .map(|m| m.as_str())
         .ok_or(AssemblyError::token(token))
-        .and_then(|s| Expr::parse(s))?;
+        .and_then(Expr::parse)?;
 
     let operand = cap.name("operand").map(|m| m.as_str()).unwrap_or("");
     let expression = Expr::parse(operand)?;

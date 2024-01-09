@@ -59,7 +59,7 @@ impl Address {
                         _ => return self.type_error(other, &op.to_string()),
                     }))
                 } else {
-                    self.type_error(&other, &op.to_string())
+                    self.type_error(other, &op.to_string())
                 }
             }
             Address::ZeroPage(n) => {
@@ -75,7 +75,7 @@ impl Address {
                         _ => return self.type_error(other, &op.to_string()),
                     }))
                 } else {
-                    self.type_error(&other, &op.to_string())
+                    self.type_error(other, &op.to_string())
                 }
             }
         }
@@ -97,7 +97,7 @@ impl Assembler {
             opcode_table: opcode::OpcodeTable::new(),
             current_label: String::new(),
             is_address_set: false,
-            current_path: current_path,
+            current_path,
         }
     }
 
@@ -123,7 +123,7 @@ impl Assembler {
         }
         line.address = self.pc as u16;
         self.entry_label(line)?;
-        Ok(for statement in &line.statements {
+        for statement in &line.statements {
             if statement.is_pseudo() {
                 self.pseudo_command_pass1(line, statement)?;
                 continue;
@@ -134,7 +134,8 @@ impl Assembler {
             let assembly_instruction = statement.decode(&self.labels)?;
             let len = assembly_instruction.addressing_mode.length();
             self.pc += len;
-        })
+        }
+        Ok(())
     }
 
     fn pass2(&mut self, lines: &mut Vec<Line>) -> Result<usize, AssemblyError> {
@@ -155,14 +156,12 @@ impl Assembler {
         let mut pc: usize = line.address as usize;
         self.track_global_label(line);
         for statement in &line.statements {
-            let objects;
-            if statement.is_pseudo() {
+            let objects = if statement.is_pseudo() {
                 let pc_u16 = pc as u16;
-                objects = self.pseudo_command_pass2(statement, &pc_u16)?;
+                self.pseudo_command_pass2(statement, &pc_u16)?
             } else {
-                objects =
-                    statement.compile(&self.opcode_table, &self.labels, &self.current_label, pc)?;
-            }
+                statement.compile(&self.opcode_table, &self.labels, &self.current_label, pc)?
+            };
             pc += objects.len();
             objects_size += objects.len();
             line.object_codes.extend(objects);
@@ -187,9 +186,9 @@ impl Assembler {
     fn entry_label(&mut self, line: &mut Line) -> Result<(), AssemblyError> {
         if let Some(label) = &line.label {
             let mut label = label.clone();
-            if label.starts_with(".") {
+            if label.starts_with('.') {
                 // local label
-                if self.current_label == "" {
+                if self.current_label.is_empty() {
                     return Err(AssemblyError::program("global label not found"));
                 }
                 label = format!("{}{}", self.current_label, label);
@@ -211,14 +210,14 @@ impl Assembler {
 
     fn add_entry(&mut self, label: &str, line: &Line) -> Result<(), AssemblyError> {
         if !self.labels.contains_key(label) {
-            self.add_label(&label, line.line_number, self.pc as u16);
+            self.add_label(label, line.line_number, self.pc as u16);
             Ok(())
         } else {
-            return Err(AssemblyError::label_used(line.line_number, &label));
+            Err(AssemblyError::label_used(line.line_number, label))
         }
     }
 
-    fn _dump_objects(objects: &Vec<u8>) -> String {
+    fn _dump_objects(objects: &[u8]) -> String {
         objects
             .iter()
             .map(|n| format!("{:02X}", n))
@@ -258,7 +257,7 @@ impl Assembler {
     fn add_label(&mut self, name: &str, line: usize, address: u16) {
         let entry = LabelEntry {
             name: name.to_string(),
-            line: line,
+            line,
             address: Address::Full(address),
         };
         self.labels.insert(name.to_string(), entry);
