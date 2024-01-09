@@ -67,7 +67,7 @@ fn decode_lda(expr: &Expr, labels: &LabelTable) -> Result<AssemblyInstruction, A
         .or_else(|_| zeropage_x(expr, labels).and_then(|num| ok_byte(&LDA, ZeroPageX, num)))
         .or_else(|_| absolute(expr, labels).and_then(|num| ok_word(&LDA, Absolute, num)))
         .or_else(|_| absolute_x(expr, labels).and_then(|num| ok_word(&LDA, AbsoluteX, num)))
-        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDA, AbsoluteX, num)))
+        .or_else(|_| absolute_y(expr, labels).and_then(|num| ok_word(&LDA, AbsoluteY, num)))
         .or_else(|_| indirect_x(expr, labels).and_then(|num| ok_byte(&LDA, IndirectX, num)))
         .or_else(|_| indirect_y(expr, labels).and_then(|num| ok_byte(&LDA, IndirectY, num)))
         .or_else(|_| register_x(expr).and_then(|_| ok_none(&TXA, Implied)))
