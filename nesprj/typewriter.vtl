@@ -1,0 +1,902 @@
+;; PPU I/O registers
+PPU_CTRL1       :=$2000
+PPU_CTRL2       :=$2001
+PPU_STATUS      :=$2002
+PPU_SPR_ADDR    :=$2003
+PPU_SPR_IO      :=$2004
+PPU_VRAM_ADDR1  :=$2005
+PPU_VRAM_ADDR2  :=$2006
+PPU_VRAM_IO     :=$2007
+
+BG_PALETTE_TBL  :=$3f00
+SPR_PALETTE_TBL :=$3f10
+
+SCREEN_WIDTH    :=32
+SCREEN_HEIGHT   :=29
+
+VRAM_NAME_TBL   :=$2000
+VRAM_ATTR_TBL   :=$23c0
+
+APU_DMC_IRQ     :=$4010
+APU_STATUS      :=$4015
+KBD_CTRL        :=$4016
+KBD_IO          :=$4017
+APU_FRAME_CNT   :=$4017
+
+                                ;; https://github.com/bbbradsmith/NES-ca65-example
+                                ;; example.s
+                                ;; Brad Smith (rainwarrior), 4/06/2014
+                                ;; http://rainwarrior.ca
+
+                                ;; ## License
+                                ;; This program and source code can be freely redistributed, modified or reused in any way.
+                                ;; Credit is not required, but attribution is always appreciated.
+
+                                ;; .segment "OAM"
+OAM             :=$0200         ;; oam: .res 256        ; sprite OAM data to be uploaded by DMA
+                                ;; .segment "BSS"
+nmt_update      :=$0300         ;; nmt_update: .res 256 ; nametable update entry buffer for PPU update
+palette         :=$0400         ;; palette:    .res 32  ; palette buffer for PPU update
+
+
+
+
+;; zero page                    ;; .segment "ZEROPAGE"
+nmi_lock        :=$00           ;; nmi_lock:       .res 1 ; prevents NMI re-entry
+nmi_count       :=$01           ;; nmi_count:      .res 1 ; is incremented every NMI
+nmi_ready       :=$02           ;; nmi_ready:      .res 1 ; set to 1 to push a PPU frame update,
+                                ;;                        ; 2 to turn rendering off next NMI
+nmt_update_len  :=$03           ;; nmt_update_len: .res 1 ; number of bytes in nmt_update buffer
+
+
+
+temp            :=$07           ;; temp:           .res 1 ; temporary variable
+gamepad         :=$08           ;; gamepad:        .res 1
+cursor_x        :=$09           ;; cursor_x: .res 1
+cursor_y        :=$0a           ;; cursor_y: .res 1
+temp_x          :=$0b           ;; temp_x:   .res 1
+temp_y          :=$0c           ;; temp_y:   .res 1
+upd             :=$0d           ;; game update mode (p_move=0, p_turn=1)
+offset_x        :=$0e
+offset_y        :=$0f
+p_dir           :=$10           ;; player direction (left=0, right=1)
+p_timer         :=$11           ;; player animation timer
+
+xsave           :=$12
+hex_l           :=$13
+hex_h           :=$14
+tmp1            :=$15
+tmp2            :=$16
+
+
+keyin_data      :=$17           ;; 9 bytes
+keyin_data_bit  :=$20           ;; 96 bytes
+
+
+nes_header                      ;; iNESヘッダ
+        ?="NES",$1A             ;; "NES" Header
+        ?=$02                   ;;  PRG-BANKS
+        ?=$01                   ;;  CHR-BANKS
+        ?=$01                   ;;  horizontal Mirror
+        ?=$00                   ;;  
+        ?=$00,$00,$00,$00       ;;  
+        ?=$00,$00,$00,$00       ;;  
+
+        *=$8000                 ;; .segment "STARTUP"
+
+reset                           ;; proc Reset
+        I=1                     ;;      sei
+        A=0                     ;;      lda #0
+        (PPU_CTRL1)=A           ;;      sta $2000
+        (PPU_CTRL2)=A           ;;      sta $2001
+        (APU_STATUS)=A          ;;      sta $4015 ; disable APU sound
+        (APU_DMC_IRQ)=A         ;;      sta $4010 ; disable DMC IRQ
+        A=$40                   ;;      lda #$40
+        (APU_FRAME_CNT)=A       ;;      sta $4017 ; disable APU IRQ
+        D=0                     ;;      cld       ; disable decimal mode
+        X=$ff                   ;;      ldx #$ff
+        S=X                     ;;      txs
+
+                                ;;; wait for first vblank
+        T=A&(PPU_STATUS)        ;;      bit $2002
+.1                              ;;      :
+        T=A&(PPU_STATUS)        ;;      bit $2002
+        ;=PL,.1                 ;;      bpl :-
+
+                                ;; ; clear all RAM to 0
+        A=0                     ;; lda #0
+        X=0                     ;; ldx #0
+.2                              ;; :
+        ($00+X)=A               ;;    sta $0000, X
+        ($0100+X)=A             ;;    sta $0100, X
+        ($0200+X)=A             ;;    sta $0200, X
+        ($0300+X)=A             ;;    sta $0300, X
+        ($0400+X)=A             ;;    sta $0400, X
+        ($0500+X)=A             ;;    sta $0500, X
+        ($0600+X)=A             ;;    sta $0600, X
+        ($0700+X)=A             ;;    sta $0700, X
+        X=+                     ;;    inx
+        ;=NE,.2                 ;;    bne :-
+                                ;; ; place all sprites offscreen at Y=255
+        A=255                   ;; lda #255
+        X=0                     ;; ldx #0
+.3                              ;; :
+        (OAM+X)=A               ;;         sta oam, X
+        X=++++                  ;;         inx
+                                ;;         inx
+                                ;;         inx
+                                ;;         inx
+        ;=NE,.3                 ;;         bne :-
+                                ;; ; wait for second vblank
+.4                              ;; :
+        T=A&(PPU_STATUS)        ;;         bit $2002
+        ;=PL,.4                 ;;         bpl :-
+
+                                ;; ; NES is initialized, ready to begin!
+                                ;; ; enable the NMI for graphical updates, and jump to our main program
+        A=%10001000             ;; lda #%10001000
+        (PPU_CTRL1)=A           ;; sta $2000
+        #=main                  ;; jmp main
+
+nmi                             ;; nmi:
+                                ;;     ; save registers
+        [=A                     ;;     pha
+        A=X                     ;;     txa
+        [=A                     ;;     pha
+        A=Y                     ;;     tya
+        [=A                     ;;     pha
+                                ;;     ; prevent NMI re-entry
+        A=(nmi_lock)            ;;     lda nmi_lock
+        ;=EQ,.1                 ;;     beq :+
+        #=.nmi_end              ;;         jmp @nmi_end
+.1                              ;;     :
+        A=1                     ;;     lda #1
+        (nmi_lock)=A            ;;     sta nmi_lock
+                                ;;     ; increment frame counter
+        (nmi_count)=+           ;;     inc nmi_count
+                                ;;     ;
+        A=(nmi_ready)           ;;     lda nmi_ready
+        ;=NE,.2                 ;;     bne :+ ; nmi_ready == 0 not ready to update PPU
+        #=.ppu_update_end       ;;         jmp @ppu_update_end
+.2                              ;;     :
+        T=A-2                   ;;     cmp #2 ; nmi_ready == 2 turns rendering off
+        ;=NE,.3                 ;;     bne :+
+        A=%00000000             ;;         lda #%00000000
+        (PPU_CTRL2)=A           ;;         sta $2001
+        X=0                     ;;         ldx #0
+        (nmi_ready)=X           ;;         stx nmi_ready
+        #=.ppu_update_end       ;;         jmp @ppu_update_end
+.3                              ;;     :
+                                ;;     ; sprite OAM DMA
+        X=0                     ;;     ldx #0
+        (PPU_SPR_ADDR)=X        ;;     stx $2003
+        A=>OAM                  ;;     lda #>oam
+        ($4014)=A               ;;     sta $4014
+                                ;;     ; palettes
+        A=%10001000             ;;     lda #%10001000
+        (PPU_CTRL1)=A           ;;     sta $2000 ; set horizontal nametable increment
+        A=(PPU_STATUS)          ;;     lda $2002
+        A=$3f                   ;;     lda #$3F
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
+        (PPU_VRAM_ADDR2)=X      ;;     stx $2006 ; set PPU address to $3F00
+        X=0                     ;;     ldx #0
+.4                              ;;     :
+        A=(palette+X)           ;;         lda palette, X
+        (PPU_VRAM_IO)=A         ;;         sta $2007
+        X=+                     ;;         inx
+        T=X-32                  ;;         cpx #32
+        ;=CC,.4                 ;;         bcc :-
+                                ;;     ; nametable update
+        X=0                     ;;     ldx #0
+        T=X-(nmt_update_len)    ;;     cpx nmt_update_len
+        ;=CS,.scroll            ;;     bcs @scroll
+.nmt_update_loop                ;;     @nmt_update_loop:
+        A=(nmt_update+X)        ;;         lda nmt_update, X
+        (PPU_VRAM_ADDR2)=A      ;;         sta $2006
+        X=+                     ;;         inx
+        A=(nmt_update+X)        ;;         lda nmt_update, X
+        (PPU_VRAM_ADDR2)=A      ;;         sta $2006
+        X=+                     ;;         inx
+        A=(nmt_update+X)        ;;         lda nmt_update, X
+        (PPU_VRAM_IO)=A         ;;         sta $2007
+        X=+                     ;;         inx
+        T=X-(nmt_update_len)    ;;         cpx nmt_update_len
+        ;=CC,.nmt_update_loop   ;;         bcc @nmt_update_loop
+        A=0                     ;;     lda #0
+        (nmt_update_len)=A      ;;     sta nmt_update_len
+.scroll                         ;; @scroll:
+
+        A=A&%00000011           ;;     and #%00000011 ; keep only lowest 2 bits to prevent error
+        A=A|%10001000           ;;     ora #%10001000
+        (PPU_CTRL1)=A           ;;     sta $2000
+
+        (PPU_VRAM_ADDR1)=A      ;;     sta $2005
+
+        (PPU_VRAM_ADDR1)=A      ;;     sta $2005
+                                ;;     ; enable rendering
+        A=%00011110             ;;     lda #%00011110
+        (PPU_CTRL2)=A           ;;     sta $2001
+                                ;;     ; flag PPU update complete
+        X=0                     ;;     ldx #0
+        (nmi_ready)=X           ;;     stx nmi_ready
+
+.ppu_update_end                 ;; @ppu_update_end:
+                                ;;     ; if this engine had music/sound, this would be a good place to play it
+                                ;;     ; unlock re-entry flag
+        A=0                     ;;     lda #0
+        (nmi_lock)=A            ;;     sta nmi_lock
+.nmi_end                        ;; @nmi_end:
+                                ;;     ; restore registers and return
+        A=]                     ;;     pla
+        Y=A                     ;;     tay
+        A=]                     ;;     pla
+        X=A                     ;;     tax
+        A=]                     ;;     pla
+        #=~                     ;;     rti
+
+                                ;; .segment "CODE"
+irq                             ;; irq:
+        #=~                     ;;     rti
+
+                                ;; ; ppu_update: waits until next NMI, turns rendering on (if not already),
+                                ;;   uploads OAM, palette, and nametable update to PPU
+ppu_update                      ;; ppu_update:
+        A=1                     ;;     lda #1
+        (nmi_ready)=A           ;;     sta nmi_ready
+.1                              ;;     :
+        A=(nmi_ready)           ;;         lda nmi_ready
+        ;=NE,.1                 ;;         bne :-
+        #=!                     ;;     rts
+                                ;; 
+                                ;; ; ppu_skip: waits until next NMI, does not update PPU
+ppu_skip                        ;; ppu_skip:
+        A=(nmi_count)           ;;     lda nmi_count
+.1                              ;;     :
+        T=A-(nmi_count)         ;;         cmp nmi_count
+        ;=EQ,.1                 ;;         beq :-
+        #=!                     ;;     rts
+                                ;; 
+                                ;; ; ppu_off: waits until next NMI, turns rendering off 
+                                ;;   (now safe to write PPU directly via $2007)
+ppu_off                         ;; ppu_off:
+        A=2                     ;;     lda #2
+        (nmi_ready)=A           ;;     sta nmi_ready
+.1                              ;;     :
+        A=(nmi_ready)           ;;         lda nmi_ready
+        ;=NE,.1                 ;;         bne :-
+        #=!                     ;;     rts
+
+;; ppu_address_tile: use with rendering off, sets memory address to tile at X/Y, ready for a $2007 write
+;;;   Y =  0- 31 nametable $2000
+;;;   Y = 32- 63 nametable $2400
+;;;   Y = 64- 95 nametable $2800
+;;;   Y = 96-127 nametable $2C00
+ppu_address_tile                ;; ppu_address_tile:
+        A=(PPU_STATUS)          ;;     lda $2002 ; reset latch
+        A=Y                     ;;     tya
+        A=>>>                   ;;     lsr *3
+        A=A|$20                 ;;     ora #$20 ; high bits of Y + $20
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
+        A=Y                     ;;     tya
+        A=<<<<<                 ;;     asl *5
+        (temp)=A                ;;     sta temp
+        A=X                     ;;     txa
+        A=A|(temp)              ;;     ora temp
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006 ; low bits of Y + X
+        #=!                     ;;     rts
+
+
+;; ppu_update_tile: can be used with rendering on, sets the tile at X/Y to tile A next time you call ppu_update
+ppu_update_tile
+        [=A                     ;; pha ; temporarily store A on stack
+        A=X                     ;; txa
+        [=A                     ;; pha ; temporarily store X on stack
+        X=(nmt_update_len)      ;; ldx nmt_update_len
+        A=Y                     ;; tya
+        A=>>>                   ;; lsr *3
+        A=A|$20                 ;; ora #$20 ; high bits of Y + $20
+        (nmt_update+X)=A        ;; sta nmt_update, X
+        X=+                     ;; inx
+        A=Y                     ;; tya
+        A=<<<<<                 ;; asl *5
+        (temp)=A                ;; sta temp
+        A=]                     ;; pla ; recover X value (but put in A)
+        A=A|(temp)              ;; ora temp
+        (nmt_update+X)=A        ;; sta nmt_update, X
+        X=+                     ;; inx
+        A=]                     ;; pla ; recover A value (tile)
+        (nmt_update+X)=A        ;; sta nmt_update, X
+        X=+                     ;; inx
+        (nmt_update_len)=X      ;; stx nmt_update_len
+        #=!                     ;; rts
+
+
+;;
+;; gamepad
+;;
+
+PAD_A       :=$01
+PAD_B       :=$02
+PAD_SELECT  :=$04
+PAD_START   :=$08
+PAD_U       :=$10
+PAD_D       :=$20
+PAD_L       :=$40
+PAD_R       :=$80
+
+;; gamepad_poll: this reads the gamepad state into the variable labelled "gamepad"
+;;   This only reads the first gamepad, and also if DPCM samples are played they can
+;;   conflict with gamepad reading, which may give incorrect results.
+gamepad_poll                ;; gamepad_poll:
+                            ;;     ; strobe the gamepad to latch current button state
+    A=1                     ;;     lda #1
+    ($4016)=A               ;;     sta $4016
+    A=0                     ;;     lda #0
+    ($4016)=A               ;;     sta $4016
+                            ;;     ; read 8 bytes from the interface at $4016
+    X=8                     ;;     ldx #8
+.1                          ;;     :
+    [=A                     ;;         pha
+    A=($4016)               ;;         lda $4016
+                            ;;         ; combine low two bits and store in carry bit
+    A=A&%00000011           ;;         and #%00000011
+    T=A-%00000001           ;;         cmp #%00000001
+    A=]                     ;;         pla
+                            ;;         ; rotate carry into gamepad variable
+    A=)                     ;;         ror
+    X=-                     ;;         dex
+    ;=NE,.1                 ;;         bne :-
+    (gamepad)=A             ;;     sta gamepad
+    #=!                     ;;     rts
+
+main                        ;;    ; setup 
+    X=0                     ;;    ldx #0
+.1                          ;;    :
+    A=(example_palette+X)   ;;        lda example_palette, X
+    (palette+X)=A           ;;        sta palette, X
+    X=+                     ;;        inx
+    T=X-32                  ;;        cpx #32
+    ;=CC,.1                 ;;        bcc :-
+    !=setup_background      ;;    jsr setup_background
+                            ;;    ; center the cursor
+    A=18                    ;;    lda #128
+    (cursor_x)=A            ;;    sta cursor_x
+    A=12                    ;;    lda #120
+    (cursor_y)=A            ;;    sta cursor_y
+    A=0
+    (offset_x)=A            ;;    ; init offset
+    (offset_y)=A
+    (p_dir)=A
+    (p_timer)=A
+                            ;;    ; show the screen
+    !=draw_player           ;;    jsr draw_player
+    !=ppu_update            ;;    jsr ppu_update
+                            ;;    ; main loop
+.loop                       ;;@loop:
+                            ;;    ; read gamepad
+    !=gamepad_poll          ;;    jsr gamepad_poll
+                            ;;    ; respond to gamepad state
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_START           ;;    and #PAD_START
+    ;=EQ,.2                 ;;    beq :+
+
+    #=.draw                 ;;        jmp @draw ; start trumps everything, don't check other buttons
+.2                          ;;    :
+
+    !=move_player
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_SELECT          ;;    and #PAD_SELECT
+    ;=EQ,.7                 ;;    beq :+
+    !=push_select           ;;        jsr push_select
+.7                          ;;    :
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_B               ;;    and #PAD_B
+    ;=EQ,.8                 ;;    beq :+
+    !=push_b                ;;        jsr push_b
+.8                          ;;    :
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_A               ;;    and #PAD_A
+    ;=EQ,.9                 ;;    beq :+
+    !=push_a_btn                ;;        jsr push_a
+.9                          ;;    :
+    !=read_keyboard
+    !=disp_keyin_data
+
+.draw                       ;;@draw:
+                            ;;    ; draw everything and finish the frame
+    !=draw_player           ;;    jsr draw_player
+    !=ppu_update            ;;    jsr ppu_update
+                            ;;    ; keep doing this forever!
+    #=.loop                 ;;    jmp @loop
+
+move_player
+    A=(upd)
+    ;=NE,turn_player
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_U               ;;    and #PAD_U
+    ;=EQ,.1                 ;;    beq :+
+    !=push_u                ;;        jsr push_u
+.1                          ;;    :
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_D               ;;    and #PAD_D
+    ;=EQ,.2                 ;;    beq :+
+    !=push_d                ;;        jsr push_d
+.2                          ;;    :
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_L               ;;    and #PAD_L
+    ;=EQ,.3                 ;;    beq :+
+    !=push_l                ;;        jsr push_l
+.3                          ;;    :
+    A=(gamepad)             ;;    lda gamepad
+    A=A&PAD_R               ;;    and #PAD_R
+    ;=EQ,.4                 ;;    beq :+
+    !=push_r                ;;        jsr push_r
+.4                          ;;    :
+    #=!
+
+turn_player                 ;; move offset
+    (p_timer)=+             ;; increment timer
+    A=(p_timer)
+    ;=A<$0f #=.6
+      A=$0f (p_timer)=A
+      A=0 (upd)=A
+.6
+    A=(offset_x)
+    ;=EQ,.2
+      ;=MI,.1
+        (offset_x)=-        ;; 正のオフセット -> A=A-1
+        #=.2
+.1
+      (offset_x)=+          ;; 負のオフセット -> A=A+1
+.2
+    A=(offset_y)
+    ;=EQ,.4
+      ;=MI,.3
+        (offset_y)=-        ;; 正のオフセット
+        #=.4
+.3
+      (offset_y)=+          ;; 負のオフセット
+.4
+    A=(offset_x)            ;; オフセットがどちらも0ならp-turnを終了
+    A=A|(offset_y)
+    ;=NE,.5
+    A=0
+    (upd)=A
+.5
+    #=!
+
+;-------------------------------------------------------------------------------
+
+read_keyboard               ;; ReadKeyboard:
+        A=%00000101             ;;         lda #%00000101          ; デバイス選択＆リセット
+        (KBD_CTRL)=A            ;;         sta JOY1
+                                ;; 
+        !=kbd_wait2             ;;         jsr Wait2
+                                ;; 
+        X=0                     ;;         ldx #$00
+.1      A=%00000100             ;;       - lda #%00000100          ; 下位データを指定
+        (KBD_CTRL)=A            ;;         sta JOY1
+                                ;; 
+        !=kbd_wait1             ;;         jsr Wait1
+                                ;; 
+        A=(KBD_IO)              ;;         lda JOY2                ; 下位データ読込
+        A=>                     ;;         lsr
+        A=A&$0f                 ;;         and #$0F
+        (keyin_data+X)=A        ;;         sta KeyData ,x
+                                ;; 
+        A=%00000110             ;;         lda #%00000110          ; 上位データを指定
+        (KBD_CTRL)=A            ;;         sta JOY1
+                                ;; 
+        !=kbd_wait1             ;;         jsr Wait1
+                                ;; 
+        A=(KBD_IO)              ;;         lda JOY2                ; 上位データ読込
+        A=<<<                   ;;         asl *3
+        A=A&$f0                 ;;         and #$F0
+        A=A|(keyin_data+X)      ;;         ora KeyData ,x          ; 下位データと上位データを合成
+        (keyin_data+X)=A        ;;         sta KeyData ,x
+                                ;; 
+        X=+                     ;;         inx
+        T=X-9                   ;;         cpx #$09
+        ;=NE,.1                 ;;         bne -
+                                ;; 
+        #=!                     ;;         rts
+                                ;; 
+                                ;; ;-------------------------------------------------------------------------------
+kbd_wait1                       ;; Wait1:                          ; ウエイト
+        Y=8                     ;;         ldy #$08
+.1      Y=-                     ;;       - dey
+        ;=NE,.1                 ;;         bne -
+        _                       ;;         nop
+kbd_wait2                       ;; Wait2:
+        #=!                     ;;         rts
+
+disp_keyin_data
+        X=0
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=1
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=2
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=3
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=4
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=5
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=6
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=7
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=8
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        X=9
+        A=(keyin_data+X)
+        A=A&$0f
+        A=A|$30
+        Y=26                ;; Y座標
+        !=ppu_update_tile
+
+        #=!
+
+;; Aの値をhex2文字に変換する
+numhex
+        (tmp1)=A               ;; Aの値を保存
+        A=>>>>                 ;; 上位4bitを下位にずらす
+        !=hexchar              ;; 文字に変換
+        (tmp2)=A               ;; 1文字目を一時保存
+        A=(tmp1)               ;; もう一度Aの値を取り出す   
+        A=A&$0f                ;; 上位4bitをマスクする
+        !=hexchar              ;; 文字に変換
+        Y=A                    ;; 2文字目をYに保存
+        A=(tmp2)               ;; 1文字目をAに戻す
+        #=!                    ;; 終わり
+
+;; Aレジスタ下位4bitの値を0-Fの文字に変換する
+hexchar
+        ;=A>$0a A=A+7
+        A=A+48
+        #=!
+
+push_u                      ;; push_u:
+    (cursor_y)=-            ;;     dec cursor_y
+                            ;;     ; Y wraps at 240
+    A=(cursor_y)            ;;     lda cursor_y
+    T=A-240                 ;;     cmp #240
+    ;=CC,.1                 ;;     bcc :+
+    A=239                   ;;         lda #239
+    (cursor_y)=A            ;;         sta cursor_y
+.1                          ;;     :
+    A=8                     ;; set offset initial value (8)
+    (offset_y)=A
+    A=1                     ;; upd = 'p_turn'
+    (upd)=A
+    #=!                     ;;     rts
+
+push_d                      ;; push_d:
+    (cursor_y)=+            ;;     inc cursor_y
+                            ;;     ; Y wraps at 240
+    A=(cursor_y)            ;;     lda cursor_y
+    T=A-240                 ;;     cmp #240
+    ;=CC,.1                 ;;     bcc :+
+    A=0                     ;;         lda #0
+    (cursor_y)=A            ;;         sta cursor_y
+.1                          ;;     :
+    A=$f8                   ;; set offset initial value (-8)
+    (offset_y)=A
+    A=1                     ;; upd = 'p_turn'
+    (upd)=A
+    #=!                     ;;     rts
+
+push_l                      ;; push_l:
+    (cursor_x)=-            ;;     dec cursor_x
+    A=8
+    (offset_x)=A
+    A=1                     ;; upd = 'p_turn'
+    (upd)=A
+    A=0
+    (p_dir)=A
+    #=!                     ;;     rts
+
+push_r                      ;; push_r:
+    (cursor_x)=+            ;;     inc cursor_x
+    A=$f8
+    (offset_x)=A
+    A=1                     ;; upd = 'p_turn'
+    (upd)=A
+    (p_dir)=A
+    #=!                     ;;     rts
+
+push_select                 ;; push_select:
+                            ;;     ; turn off rendering so we can manually update entire nametable
+    !=ppu_off               ;;     jsr ppu_off
+    !=setup_background      ;;     jsr setup_background
+.1                          ;;     ; wait for user to release select before continuing
+                            ;;     :
+    !=gamepad_poll          ;;         jsr gamepad_poll
+    A=(gamepad)             ;;         lda gamepad
+    A=A&PAD_SELECT          ;;         and #PAD_SELECT
+    ;=NE,.1                 ;;         bne :-
+    #=!                     ;;     rts
+
+push_b                      ;; push_b:
+    !=snap_cursor           ;;     jsr snap_cursor
+    A=(cursor_x)            ;;     lda cursor_x
+    A=>>>                   ;;     lsr *3
+    X=A                     ;;     tax ; X = cursor_x / 8
+    A=(cursor_y)            ;;     lda cursor_y
+    A=>>>                   ;;     lsr *3
+    Y=A                     ;;     tay ; Y = cursor_y / 8
+    A=4                     ;;     lda #4
+    !=ppu_update_tile       ;;     jsr ppu_update_tile ; puts tile 4 at X/Y
+    #=!                     ;;     rts
+
+push_a_btn                      ;; push_a:
+    !=snap_cursor           ;;     jsr snap_cursor
+    A=(cursor_x)            ;;     lda cursor_x
+    A=>                     ;;     lsr
+    A=>                     ;;     lsr
+    A=>                     ;;     lsr
+    (temp_x)=A              ;;     sta temp_x ; cursor_x / 8
+    A=(cursor_y)            ;;     lda cursor_y
+    A=>                     ;;     lsr
+    A=>                     ;;     lsr
+    A=>                     ;;     lsr
+    (temp_y)=A              ;;     sta temp_y ; cursor_y / 8
+                            ;;     ; draw a ring of 8 tiles around the cursor
+    (temp_x)=-              ;;     dec temp_x ; x-1
+    (temp_y)=-              ;;     dec temp_y ; y-1
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=5                     ;;     lda #5
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=+              ;;     inc temp_x ; x
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=6                     ;;     lda #6
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=+              ;;     inc temp_x ; x+1
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=5                     ;;     lda #5
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=-              ;;     dec temp_x
+    (temp_x)=-              ;;     dec temp_x ; x-1
+    (temp_y)=+              ;;     inc temp_y ; y
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=6                     ;;     lda #6
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=+              ;;     inc temp_x
+    (temp_x)=+              ;;     inc temp_x ; x+1
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=6                     ;;     lda #6
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=-              ;;     dec temp_x
+    (temp_x)=-              ;;     dec temp_x ; x-1
+    (temp_y)=+              ;;     inc temp_y ; y+1
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=5                     ;;     lda #5
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=+              ;;     inc temp_x ; x
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=6                     ;;     lda #6
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    (temp_x)=+              ;;     inc temp_x ; x+1
+    X=(temp_x)              ;;     ldx temp_x
+    Y=(temp_y)              ;;     ldy temp_y
+    A=5                     ;;     lda #5
+    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    #=!                     ;;     rts
+
+                            ;; ; snap_cursor: snap cursor to nearest tile
+snap_cursor                 ;; snap_cursor:
+    A=(cursor_x)            ;;     lda cursor_x
+                            ;;     clc
+    A=A+4                   ;;     adc #4
+    A=A&$f8                 ;;     and #$F8
+    (cursor_x)=A            ;;     sta cursor_x
+    A=(cursor_y)            ;;     lda cursor_y
+                            ;;     clc
+    A=A+4                   ;;     adc #4
+    A=A&$f8                 ;;     and #$F8
+    (cursor_y)=A            ;;     sta cursor_y
+                            ;;     ; Y wraps at 240
+    T=A-240                 ;;     cmp #240
+    ;=CC,.1                 ;;     bcc :+
+    A=0                     ;;         lda #0
+    (cursor_y)=A            ;;         sta cursor_y
+.1                          ;;     :
+    #=!                     ;;     rts
+
+draw_player                 ;; draw_player:
+                            ;;     ; four sprites centred around the currently selected tile
+                            ;;     ; y position (note, needs to be one line higher than sprite's appearance)
+    A=(cursor_y)            ;;     lda cursor_y
+    A=<<<                   ;;      x8
+    A=A+(offset_y)
+    A=A-2
+    (OAM)=A                 ;;     sta oam+(0*4)+0
+                            ;;     ; tile
+    A=(nmi_count)           ;;     lda #1
+    A=A&%00110000
+    A=> A=> A=> A=>
+    A=A+$f0
+    (OAM+1)=A               ;;     sta oam+(0*4)+1
+                            ;;     ; attributes
+    A=(p_dir)
+    ;=EQ,.1
+    A=%00000000             ;;     lda #%00000000 ; no flip
+    #=.2
+.1    
+    A=%01000000             ;;     lda #%01000000 ; flip horizontal
+.2
+    (OAM+2)=A               ;;     sta oam+(0*4)+2
+                            ;;     ; x position
+    A=(cursor_x)            ;;     lda cursor_x
+    A=<<<                   ;;      x8
+    A=A+(offset_x)
+    (OAM+3)=A               ;;     sta oam+(0*4)+3
+    #=!                     ;;     rts
+
+setup_background                ;; setup_background:
+                                ;;     ; first nametable, start by clearing to empty
+        A=(PPU_STATUS)          ;;     lda $2002 ; reset latch
+        A=$20                   ;;     lda #$20
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
+        A=$00                   ;;     lda #$00
+        (PPU_VRAM_ADDR2)=A      ;;     sta $2006
+                                ;;     ; empty nametable
+        A=0                     ;;     lda #0
+        Y=30                    ;;     ldy #30 ; 30 rows
+.1                              ;;     :
+        X=32                    ;;         ldx #32 ; 32 columns
+.2                              ;;         :
+        (PPU_VRAM_IO)=A         ;;             sta $2007
+        X=-                     ;;             dex
+        ;=NE,.2                 ;;             bne :-
+        Y=-                     ;;         dey
+        ;=NE,.1                 ;;         bne :--
+                                ;;     ; set all attributes to 0
+        X=64                    ;;     ldx #64 ; 64 bytes
+        A=0
+.3                              ;;     :
+        (PPU_VRAM_IO)=A         ;;         sta $2007
+        X=-                     ;;         dex
+        ;=NE,.3                 ;;         bne :-
+
+                                ;;; draw map
+        A=$20                   ;; setup ppu write address
+        (PPU_VRAM_ADDR2)=A
+        A=$00
+        (PPU_VRAM_ADDR2)=A
+
+        Y=0
+.loop1
+        A=(map1+Y)              ;; read map data
+        A=A+$b0
+        (PPU_VRAM_IO)=A         ;; store to ppu
+        Y=+
+        ;=NE,.loop1
+.loop2
+        A=(map2+Y)              ;; read map data
+        A=A+$b0
+        (PPU_VRAM_IO)=A         ;; store to ppu
+        Y=+
+        ;=NE,.loop2
+.loop3
+        A=(map3+Y)              ;; read map data
+        A=A+$b0
+        (PPU_VRAM_IO)=A         ;; store to ppu
+        Y=+
+        ;=NE,.loop3
+
+        X=$c0                   ;; counter
+.loop4
+        A=(map4+Y)              ;; read map data
+        (PPU_VRAM_IO)=A         ;; store to ppu
+        Y=+
+        X=-
+        ;=NE,.loop4
+
+        #=!                     ;;     rts
+
+;;    +="stack.vtl"
+
+;; .segment "RODATA"
+example_palette
+        ?=$0F,$10,$38,$2d   ;; bg0 purple/pink
+        ?=$0F,$09,$19,$29   ;; bg1 green
+        ?=$0F,$01,$11,$21   ;; bg2 blue
+        ?=$0F,$00,$10,$30   ;; bg3 greyscale
+        ?=$0F,$35,$28,$38   ;; sp0 yellow
+        ?=$0F,$14,$24,$34   ;; sp1 purple
+        ?=$0F,$1B,$2B,$3B   ;; sp2 teal
+        ?=$0F,$12,$22,$32   ;; sp3 marine
+map_data
+        ;; 12345678901234567890123456789012
+map1    ?="################################"    ;; 1
+        ?="#.>..........###################"    ;; 2
+        ?="#............###################"    ;; 3
+        ?="#............+.........#########"    ;; 4
+        ?="#............#########.#########"    ;; 5
+        ?="#............#########.#########"    ;; 6
+        ?="###.##################.#########"    ;; 7
+        ?="###.##################.#########"    ;; 8
+map2    ?="###+##################+#########"    ;; 9
+        ?="##.........######..............#"    ;; 10
+        ?="##.........+....+.........@....#"    ;; 11
+        ?="##.........##.###..............#"    ;; 12
+        ?="##.........##.###..............#"    ;; 13
+        ?="#####+#######.###..............#"    ;; 14
+        ?="#####.#######.###..............#"    ;; 15
+        ?="#####.#######.###..............#"    ;; 16
+map3    ?="##.......####.#####+############"    ;; 17
+        ?="##.......####.#####.############"    ;; 18
+        ?="##.......+..........############"    ;; 19
+        ?="##.......#######################"    ;; 20
+        ?="##.......#########...........###"    ;; 21
+        ?="##.......+.......+...........###"    ;; 22
+        ?="##.......#########........<..###"    ;; 23
+        ?="################################"    ;; 24
+map4    ?="                                "    ;; 25
+        ?="                                "    ;; 26
+        ?="                                "    ;; 27
+        ?="                                "    ;; 28
+        ?="                                "    ;; 29
+        ?="                                "    ;; 30
+
+        $=$00,$fffa-*       ;;.segment "VECINFO"                       
+        ?=nmi               ;;        .word        $0000
+        ?=reset             ;;        .word        Reset
+        ?=irq               ;;        .word        $0000
+
+        *=$0000
+        &="chr_files/roguelike.chr"
