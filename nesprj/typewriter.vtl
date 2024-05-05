@@ -59,7 +59,7 @@ temp_y          :=$0c           ;; temp_y:   .res 1
 upd             :=$0d           ;; game update mode (p_move=0, p_turn=1)
 offset_x        :=$0e
 offset_y        :=$0f
-p_dir           :=$10           ;; player direction (left=0, right=1)
+buttons         :=$10           ;; button push state
 p_timer         :=$11           ;; player animation timer
 
 xsave           :=$12
@@ -205,13 +205,15 @@ nmi                             ;; nmi:
         A=0                     ;;     lda #0
         (nmt_update_len)=A      ;;     sta nmt_update_len
 .scroll                         ;; @scroll:
-
+        A=0
         A=A&%00000011           ;;     and #%00000011 ; keep only lowest 2 bits to prevent error
         A=A|%10001000           ;;     ora #%10001000
         (PPU_CTRL1)=A           ;;     sta $2000
 
+        A=0                     ;;     ; set value of scroll_x
         (PPU_VRAM_ADDR1)=A      ;;     sta $2005
 
+        A=0                     ;;     ; set value of scroll_y
         (PPU_VRAM_ADDR1)=A      ;;     sta $2005
                                 ;;     ; enable rendering
         A=%00011110             ;;     lda #%00011110
@@ -320,9 +322,19 @@ PAD_B       :=$02
 PAD_SELECT  :=$04
 PAD_START   :=$08
 PAD_U       :=$10
+PAD_U_NOT   :=$ef
 PAD_D       :=$20
+PAD_D_NOT   :=$df
 PAD_L       :=$40
+PAD_L_NOT   :=$bf
 PAD_R       :=$80
+PAD_R_NOT   :=$7f
+
+;; arrow key
+ARROW_U     :=$02
+ARROW_R     :=$04
+ARROW_L     :=$08
+ARROW_D     :=$10
 
 ;; gamepad_poll: this reads the gamepad state into the variable labelled "gamepad"
 ;;   This only reads the first gamepad, and also if DPCM samples are played they can
@@ -359,17 +371,15 @@ main                        ;;    ; setup
     ;=CC,.1                 ;;        bcc :-
     !=setup_background      ;;    jsr setup_background
                             ;;    ; center the cursor
-    A=18                    ;;    lda #128
+    A=2                     ;;    lda #128
     (cursor_x)=A            ;;    sta cursor_x
-    A=12                    ;;    lda #120
+    A=2                     ;;    lda #120
     (cursor_y)=A            ;;    sta cursor_y
     A=0
-    (offset_x)=A            ;;    ; init offset
-    (offset_y)=A
-    (p_dir)=A
     (p_timer)=A
+    (buttons)=A
                             ;;    ; show the screen
-    !=draw_player           ;;    jsr draw_player
+    !=draw_cursor           ;;    jsr draw_cursor
     !=ppu_update            ;;    jsr ppu_update
                             ;;    ; main loop
 .loop                       ;;@loop:
@@ -404,66 +414,76 @@ main                        ;;    ; setup
 
 .draw                       ;;@draw:
                             ;;    ; draw everything and finish the frame
-    !=draw_player           ;;    jsr draw_player
+    !=draw_cursor           ;;    jsr draw_cursor
     !=ppu_update            ;;    jsr ppu_update
                             ;;    ; keep doing this forever!
     #=.loop                 ;;    jmp @loop
 
 move_player
-    A=(upd)
-    ;=NE,turn_player
     A=(gamepad)             ;;    lda gamepad
     A=A&PAD_U               ;;    and #PAD_U
-    ;=EQ,.1                 ;;    beq :+
-    !=push_u                ;;        jsr push_u
-.1                          ;;    :
+    ;=EQ,.1
+    A=(buttons)             ;; check state
+    ;=NE,.move_done         ;; if pushed then no move
+    !=push_u
+    A=1                     ;; set flag on
+    (buttons)=A
+    #=.move_done
+.1
     A=(gamepad)             ;;    lda gamepad
     A=A&PAD_D               ;;    and #PAD_D
     ;=EQ,.2                 ;;    beq :+
-    !=push_d                ;;        jsr push_d
+    A=(buttons)             ;; check state
+    ;=NE,.move_done         ;; if pushed then no move
+    !=push_d
+    A=1                     ;; set flag on
+    (buttons)=A
+    #=.move_done
 .2                          ;;    :
     A=(gamepad)             ;;    lda gamepad
     A=A&PAD_L               ;;    and #PAD_L
     ;=EQ,.3                 ;;    beq :+
+    A=(buttons)             ;; check state
+    ;=NE,.move_done         ;; if pushed then no move
     !=push_l                ;;        jsr push_l
+    A=1                     ;; set flag on
+    (buttons)=A
+    #=.move_done
 .3                          ;;    :
     A=(gamepad)             ;;    lda gamepad
     A=A&PAD_R               ;;    and #PAD_R
     ;=EQ,.4                 ;;    beq :+
+    A=(buttons)             ;; check state
+    ;=NE,.move_done         ;; if pushed then no move
     !=push_r                ;;        jsr push_r
+    A=1                     ;; set flag on
+    (buttons)=A
+    #=.move_done
 .4                          ;;    :
+    A=0                     ;; reset button pushed
+    (buttons)=A             ;; because no button pushed
+    #=arraw_key
+.move_done
     #=!
 
-turn_player                 ;; move offset
-    (p_timer)=+             ;; increment timer
-    A=(p_timer)
-    ;=A<$0f #=.6
-      A=$0f (p_timer)=A
-      A=0 (upd)=A
-.6
-    A=(offset_x)
-    ;=EQ,.2
-      ;=MI,.1
-        (offset_x)=-        ;; 正のオフセット -> A=A-1
-        #=.2
+
+;; 上矢印キーを押されている場合の処理
+arraw_key
+    A=(keyin_data+8)
+    A=A^$ff
+    A=A&ARROW_U
+    ;=EQ,.1
+    !=push_u
 .1
-      (offset_x)=+          ;; 負のオフセット -> A=A+1
+    A=(keyin_data+8)
+    A=A^$ff
+    A=A&ARROW_D
+    ;=EQ,.2
+    !=push_d
 .2
-    A=(offset_y)
-    ;=EQ,.4
-      ;=MI,.3
-        (offset_y)=-        ;; 正のオフセット
-        #=.4
-.3
-      (offset_y)=+          ;; 負のオフセット
-.4
-    A=(offset_x)            ;; オフセットがどちらも0ならp-turnを終了
-    A=A|(offset_y)
-    ;=NE,.5
-    A=0
-    (upd)=A
-.5
     #=!
+
+
 
 ;-------------------------------------------------------------------------------
 
@@ -517,70 +537,6 @@ disp_keyin_data
         A=A|$30
         Y=26                ;; Y座標
         !=ppu_update_tile
-
-        X=1
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=2
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=3
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=4
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=5
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=6
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=7
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=8
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
-        X=9
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;; Y座標
-        !=ppu_update_tile
-
         #=!
 
 ;; Aの値をhex2文字に変換する
@@ -606,49 +562,27 @@ push_u                      ;; push_u:
     (cursor_y)=-            ;;     dec cursor_y
                             ;;     ; Y wraps at 240
     A=(cursor_y)            ;;     lda cursor_y
-    T=A-240                 ;;     cmp #240
-    ;=CC,.1                 ;;     bcc :+
-    A=239                   ;;         lda #239
+    ;=PL,.1                 ;;     bcc :+
+    A=29                    ;;         lda #239
     (cursor_y)=A            ;;         sta cursor_y
 .1                          ;;     :
-    A=8                     ;; set offset initial value (8)
-    (offset_y)=A
-    A=1                     ;; upd = 'p_turn'
-    (upd)=A
     #=!                     ;;     rts
 
 push_d                      ;; push_d:
     (cursor_y)=+            ;;     inc cursor_y
-                            ;;     ; Y wraps at 240
     A=(cursor_y)            ;;     lda cursor_y
-    T=A-240                 ;;     cmp #240
-    ;=CC,.1                 ;;     bcc :+
-    A=0                     ;;         lda #0
-    (cursor_y)=A            ;;         sta cursor_y
+    ;=A>30 A=0 (cursor_y)=A ;; ; wrap over L30
 .1                          ;;     :
-    A=$f8                   ;; set offset initial value (-8)
-    (offset_y)=A
-    A=1                     ;; upd = 'p_turn'
-    (upd)=A
     #=!                     ;;     rts
 
 push_l                      ;; push_l:
     (cursor_x)=-            ;;     dec cursor_x
-    A=8
-    (offset_x)=A
-    A=1                     ;; upd = 'p_turn'
-    (upd)=A
-    A=0
-    (p_dir)=A
+.1
     #=!                     ;;     rts
 
 push_r                      ;; push_r:
     (cursor_x)=+            ;;     inc cursor_x
-    A=$f8
-    (offset_x)=A
-    A=1                     ;; upd = 'p_turn'
-    (upd)=A
-    (p_dir)=A
+.1
     #=!                     ;;     rts
 
 push_select                 ;; push_select:
@@ -664,125 +598,39 @@ push_select                 ;; push_select:
     #=!                     ;;     rts
 
 push_b                      ;; push_b:
-    !=snap_cursor           ;;     jsr snap_cursor
     A=(cursor_x)            ;;     lda cursor_x
-    A=>>>                   ;;     lsr *3
-    X=A                     ;;     tax ; X = cursor_x / 8
+    X=A                     ;;     tax ; X = cursor_x
     A=(cursor_y)            ;;     lda cursor_y
-    A=>>>                   ;;     lsr *3
-    Y=A                     ;;     tay ; Y = cursor_y / 8
-    A=4                     ;;     lda #4
+    Y=A                     ;;     tay ; Y = cursor_y
+    A=$20                   ;;     lda #4
     !=ppu_update_tile       ;;     jsr ppu_update_tile ; puts tile 4 at X/Y
     #=!                     ;;     rts
 
 push_a_btn                      ;; push_a:
-    !=snap_cursor           ;;     jsr snap_cursor
-    A=(cursor_x)            ;;     lda cursor_x
-    A=>                     ;;     lsr
-    A=>                     ;;     lsr
-    A=>                     ;;     lsr
-    (temp_x)=A              ;;     sta temp_x ; cursor_x / 8
-    A=(cursor_y)            ;;     lda cursor_y
-    A=>                     ;;     lsr
-    A=>                     ;;     lsr
-    A=>                     ;;     lsr
-    (temp_y)=A              ;;     sta temp_y ; cursor_y / 8
-                            ;;     ; draw a ring of 8 tiles around the cursor
-    (temp_x)=-              ;;     dec temp_x ; x-1
-    (temp_y)=-              ;;     dec temp_y ; y-1
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=5                     ;;     lda #5
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=+              ;;     inc temp_x ; x
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=6                     ;;     lda #6
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=+              ;;     inc temp_x ; x+1
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=5                     ;;     lda #5
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=-              ;;     dec temp_x
-    (temp_x)=-              ;;     dec temp_x ; x-1
-    (temp_y)=+              ;;     inc temp_y ; y
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=6                     ;;     lda #6
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=+              ;;     inc temp_x
-    (temp_x)=+              ;;     inc temp_x ; x+1
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=6                     ;;     lda #6
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=-              ;;     dec temp_x
-    (temp_x)=-              ;;     dec temp_x ; x-1
-    (temp_y)=+              ;;     inc temp_y ; y+1
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=5                     ;;     lda #5
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=+              ;;     inc temp_x ; x
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=6                     ;;     lda #6
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
-    (temp_x)=+              ;;     inc temp_x ; x+1
-    X=(temp_x)              ;;     ldx temp_x
-    Y=(temp_y)              ;;     ldy temp_y
-    A=5                     ;;     lda #5
-    !=ppu_update_tile       ;;     jsr ppu_update_tile
+    A=$40
+    X=3
+    Y=4
+    !=ppu_update_tile       ;;     jsr ppu_update_tile ; puts tile 4 at X/Y
     #=!                     ;;     rts
 
-                            ;; ; snap_cursor: snap cursor to nearest tile
-snap_cursor                 ;; snap_cursor:
-    A=(cursor_x)            ;;     lda cursor_x
-                            ;;     clc
-    A=A+4                   ;;     adc #4
-    A=A&$f8                 ;;     and #$F8
-    (cursor_x)=A            ;;     sta cursor_x
-    A=(cursor_y)            ;;     lda cursor_y
-                            ;;     clc
-    A=A+4                   ;;     adc #4
-    A=A&$f8                 ;;     and #$F8
-    (cursor_y)=A            ;;     sta cursor_y
-                            ;;     ; Y wraps at 240
-    T=A-240                 ;;     cmp #240
-    ;=CC,.1                 ;;     bcc :+
-    A=0                     ;;         lda #0
-    (cursor_y)=A            ;;         sta cursor_y
-.1                          ;;     :
-    #=!                     ;;     rts
-
-draw_player                 ;; draw_player:
-                            ;;     ; four sprites centred around the currently selected tile
+draw_cursor                 ;; draw_cursor:
                             ;;     ; y position (note, needs to be one line higher than sprite's appearance)
     A=(cursor_y)            ;;     lda cursor_y
     A=<<<                   ;;      x8
-    A=A+(offset_y)
     A=A-2
     (OAM)=A                 ;;     sta oam+(0*4)+0
                             ;;     ; tile
     A=(nmi_count)           ;;     lda #1
-    A=A&%00110000
-    A=> A=> A=> A=>
-    A=A+$f0
+    A=A&%01110000
+    A=>>>>>
+    A=A+$e0
     (OAM+1)=A               ;;     sta oam+(0*4)+1
                             ;;     ; attributes
-    A=(p_dir)
-    ;=EQ,.1
     A=%00000000             ;;     lda #%00000000 ; no flip
-    #=.2
-.1    
-    A=%01000000             ;;     lda #%01000000 ; flip horizontal
-.2
     (OAM+2)=A               ;;     sta oam+(0*4)+2
                             ;;     ; x position
     A=(cursor_x)            ;;     lda cursor_x
     A=<<<                   ;;      x8
-    A=A+(offset_x)
     (OAM+3)=A               ;;     sta oam+(0*4)+3
     #=!                     ;;     rts
 
@@ -794,12 +642,17 @@ setup_background                ;; setup_background:
         A=$00                   ;;     lda #$00
         (PPU_VRAM_ADDR2)=A      ;;     sta $2006
                                 ;;     ; empty nametable
-        A=0                     ;;     lda #0
+        ;; '!' から '~' までを範囲としてコードを変化させる
+        ;; SPC ' ' $20 = %0010 0000
+        ;; TLD '~' $7e = %0111 1110
+        A=$21                   ;; 初期値
         Y=30                    ;;     ldy #30 ; 30 rows
 .1                              ;;     :
         X=32                    ;;         ldx #32 ; 32 columns
 .2                              ;;         :
         (PPU_VRAM_IO)=A         ;;             sta $2007
+        A=A+1
+        ;=A>$7e A=$21
         X=-                     ;;             dex
         ;=NE,.2                 ;;             bne :-
         Y=-                     ;;         dey
@@ -818,37 +671,7 @@ setup_background                ;; setup_background:
         A=$00
         (PPU_VRAM_ADDR2)=A
 
-        Y=0
-.loop1
-        A=(map1+Y)              ;; read map data
-        A=A+$b0
-        (PPU_VRAM_IO)=A         ;; store to ppu
-        Y=+
-        ;=NE,.loop1
-.loop2
-        A=(map2+Y)              ;; read map data
-        A=A+$b0
-        (PPU_VRAM_IO)=A         ;; store to ppu
-        Y=+
-        ;=NE,.loop2
-.loop3
-        A=(map3+Y)              ;; read map data
-        A=A+$b0
-        (PPU_VRAM_IO)=A         ;; store to ppu
-        Y=+
-        ;=NE,.loop3
-
-        X=$c0                   ;; counter
-.loop4
-        A=(map4+Y)              ;; read map data
-        (PPU_VRAM_IO)=A         ;; store to ppu
-        Y=+
-        X=-
-        ;=NE,.loop4
-
         #=!                     ;;     rts
-
-;;    +="stack.vtl"
 
 ;; .segment "RODATA"
 example_palette
@@ -860,38 +683,6 @@ example_palette
         ?=$0F,$14,$24,$34   ;; sp1 purple
         ?=$0F,$1B,$2B,$3B   ;; sp2 teal
         ?=$0F,$12,$22,$32   ;; sp3 marine
-map_data
-        ;; 12345678901234567890123456789012
-map1    ?="################################"    ;; 1
-        ?="#.>..........###################"    ;; 2
-        ?="#............###################"    ;; 3
-        ?="#............+.........#########"    ;; 4
-        ?="#............#########.#########"    ;; 5
-        ?="#............#########.#########"    ;; 6
-        ?="###.##################.#########"    ;; 7
-        ?="###.##################.#########"    ;; 8
-map2    ?="###+##################+#########"    ;; 9
-        ?="##.........######..............#"    ;; 10
-        ?="##.........+....+.........@....#"    ;; 11
-        ?="##.........##.###..............#"    ;; 12
-        ?="##.........##.###..............#"    ;; 13
-        ?="#####+#######.###..............#"    ;; 14
-        ?="#####.#######.###..............#"    ;; 15
-        ?="#####.#######.###..............#"    ;; 16
-map3    ?="##.......####.#####+############"    ;; 17
-        ?="##.......####.#####.############"    ;; 18
-        ?="##.......+..........############"    ;; 19
-        ?="##.......#######################"    ;; 20
-        ?="##.......#########...........###"    ;; 21
-        ?="##.......+.......+...........###"    ;; 22
-        ?="##.......#########........<..###"    ;; 23
-        ?="################################"    ;; 24
-map4    ?="                                "    ;; 25
-        ?="                                "    ;; 26
-        ?="                                "    ;; 27
-        ?="                                "    ;; 28
-        ?="                                "    ;; 29
-        ?="                                "    ;; 30
 
         $=$00,$fffa-*       ;;.segment "VECINFO"                       
         ?=nmi               ;;        .word        $0000
@@ -899,4 +690,4 @@ map4    ?="                                "    ;; 25
         ?=irq               ;;        .word        $0000
 
         *=$0000
-        &="chr_files/roguelike.chr"
+        &="chr_files/typewriter.chr"
