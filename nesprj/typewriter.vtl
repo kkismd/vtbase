@@ -420,70 +420,100 @@ main                        ;;    ; setup
     #=.loop                 ;;    jmp @loop
 
 move_player
-    A=(gamepad)             ;;    lda gamepad
-    A=A&PAD_U               ;;    and #PAD_U
-    ;=EQ,.1
+    !=is_up_key_pressed
+    ;=EQ,.check_down_key
     A=(buttons)             ;; check state
-    ;=NE,.move_done         ;; if pushed then no move
+    ;=NE,.1
     !=push_u
     A=1                     ;; set flag on
     (buttons)=A
-    #=.move_done
 .1
-    A=(gamepad)             ;;    lda gamepad
-    A=A&PAD_D               ;;    and #PAD_D
-    ;=EQ,.2                 ;;    beq :+
+    #=!
+
+.check_down_key
+    !=is_down_key_pressed
+    ;=EQ,.check_left_key
     A=(buttons)             ;; check state
-    ;=NE,.move_done         ;; if pushed then no move
+    ;=NE,.2
     !=push_d
     A=1                     ;; set flag on
     (buttons)=A
-    #=.move_done
-.2                          ;;    :
-    A=(gamepad)             ;;    lda gamepad
-    A=A&PAD_L               ;;    and #PAD_L
-    ;=EQ,.3                 ;;    beq :+
+.2
+    #=!
+
+.check_left_key
+    !=is_left_key_pressed
+    ;=EQ,.check_right_key
     A=(buttons)             ;; check state
-    ;=NE,.move_done         ;; if pushed then no move
+    ;=NE,.3
     !=push_l                ;;        jsr push_l
     A=1                     ;; set flag on
     (buttons)=A
-    #=.move_done
-.3                          ;;    :
-    A=(gamepad)             ;;    lda gamepad
-    A=A&PAD_R               ;;    and #PAD_R
-    ;=EQ,.4                 ;;    beq :+
+.3
+    #=!
+
+.check_right_key
+    !=is_right_key_pressed
+    ;=EQ,.no_button_pressed
     A=(buttons)             ;; check state
-    ;=NE,.move_done         ;; if pushed then no move
+    ;=NE,.4
     !=push_r                ;;        jsr push_r
     A=1                     ;; set flag on
     (buttons)=A
-    #=.move_done
-.4                          ;;    :
-    A=0                     ;; reset button pushed
-    (buttons)=A             ;; because no button pushed
-    #=arraw_key
-.move_done
+.4
     #=!
 
+.no_button_pressed
+    A=0                     ;; reset button pushed
+    (buttons)=A             ;; because no button pushed
+    #=!
 
-;; 上矢印キーを押されている場合の処理
-arraw_key
+; pad up button or kbd up key is pressed?
+is_up_key_pressed
+    A=(gamepad)
+    A=A&PAD_U
+    ;=EQ,.1
+    #=!
+.1
     A=(keyin_data+8)
     A=A^$ff
     A=A&ARROW_U
+    #=!
+
+; pad down button or kbd down key is pressed?
+is_down_key_pressed
+    A=(gamepad)
+    A=A&PAD_D
     ;=EQ,.1
-    !=push_u
+    #=!
 .1
     A=(keyin_data+8)
     A=A^$ff
     A=A&ARROW_D
-    ;=EQ,.2
-    !=push_d
-.2
     #=!
 
+; pad left button or kbd left key is pressed?
+is_left_key_pressed
+    A=(gamepad)
+    A=A&PAD_L
+    ;=EQ,.1
+    #=!
+.1
+    A=(keyin_data+8)
+    A=A^$ff
+    A=A&ARROW_L
+    #=!
 
+is_right_key_pressed
+    A=(gamepad)
+    A=A&PAD_R
+    ;=EQ,.1
+    #=!
+.1
+    A=(keyin_data+8)
+    A=A^$ff
+    A=A&ARROW_R
+    #=!
 
 ;-------------------------------------------------------------------------------
 
