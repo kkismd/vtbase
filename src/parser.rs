@@ -70,7 +70,7 @@ pub fn parse_from_file(file: &File, file_path: PathBuf) -> Result<Vec<Line>, Ass
 
 // make abstract syntax tree
 fn parse_line(line: String, line_num: usize) -> Result<Line, AssemblyError> {
-    let line = remove_after_double_semicolon(&line);
+    let line = remove_comment(&line);
     let cap = match_line(&line, line_num)?;
 
     let body = cap.name("body").map_or("", |m| m.as_str());
@@ -102,6 +102,7 @@ fn parse_statements(tokens: Vec<String>) -> Result<Vec<Statement>, AssemblyError
 }
 
 fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
+    // regex to match assignment or single character
     let assignment_pattern = Regex::new(r"^(?P<command>[^=]+)=(?P<operand>.+)$").unwrap();
     let single_pattern = Regex::new(r"(?P<command>\S)").unwrap();
     let cap = assignment_pattern
@@ -125,6 +126,7 @@ fn parse_token(token: &str) -> Result<Statement, AssemblyError> {
 }
 
 fn tokenize(text: &str) -> Vec<String> {
+    // regex to match quoted strings or non-whitespace characters
     let re = Regex::new(r#"("[^"]*"|\S)+"#).unwrap();
     let mut tokens = Vec::new();
 
@@ -135,7 +137,8 @@ fn tokenize(text: &str) -> Vec<String> {
     tokens
 }
 
-fn remove_after_double_semicolon(s: &str) -> String {
+// remove any chars after semicolon not in quotes or not followed by an equal sign
+fn remove_comment(s: &str) -> String {
     let mut result = String::new();
     let mut in_quotes = false;
     let mut chars = s.chars().peekable();
@@ -145,7 +148,7 @@ fn remove_after_double_semicolon(s: &str) -> String {
         }
         if c == ';' && !in_quotes {
             if let Some(&next) = chars.peek() {
-                if next == ';' {
+                if next != '=' {
                     break;
                 }
             }
@@ -232,7 +235,11 @@ mod tests {
     #[test]
     fn test_remove_after_quote() {
         let s = "A=1 ;; comment";
-        assert_eq!(remove_after_double_semicolon(s), "A=1 ");
+        assert_eq!(remove_comment(s), "A=1 ");
+        let s2 = "A=1 ; comment";
+        assert_eq!(remove_comment(s2), "A=1 ");
+        let s3 = "  ;=A>1 ; comment";
+        assert_eq!(remove_comment(s3), "  ;=A>1 ");
     }
 
     #[test]
