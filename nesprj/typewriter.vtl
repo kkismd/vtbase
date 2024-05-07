@@ -11,8 +11,27 @@ PPU_VRAM_IO     :=$2007
 BG_PALETTE_TBL  :=$3f00
 SPR_PALETTE_TBL :=$3f10
 
+;; constants
 SCREEN_WIDTH    :=32
 SCREEN_HEIGHT   :=29
+;; gamepad
+PAD_A           :=$01
+PAD_B           :=$02
+PAD_SELECT      :=$04
+PAD_START       :=$08
+PAD_U           :=$10
+PAD_U_NOT       :=$ef
+PAD_D           :=$20
+PAD_D_NOT       :=$df
+PAD_L           :=$40
+PAD_L_NOT       :=$bf
+PAD_R           :=$80
+PAD_R_NOT       :=$7f
+;; arrow key
+ARROW_U         :=$02
+ARROW_R         :=$04
+ARROW_L         :=$08
+ARROW_D         :=$10
 
 VRAM_NAME_TBL   :=$2000
 VRAM_ATTR_TBL   :=$23c0
@@ -56,7 +75,7 @@ cursor_x        :=$09           ;  cursor_x: .res 1
 cursor_y        :=$0a           ;  cursor_y: .res 1
 temp_x          :=$0b           ;  temp_x:   .res 1
 temp_y          :=$0c           ;  temp_y:   .res 1
-upd             :=$0d           ;  game update mode (p_move=0, p_turn=1)
+upd             :=$0d
 offset_x        :=$0e
 offset_y        :=$0f
 buttons         :=$10           ;  button push state
@@ -70,8 +89,11 @@ tmp2            :=$16
 
 
 keyin_data      :=$17           ;  9 bytes
-keyin_data_bit  :=$20           ;  96 bytes
-
+keyin_offset    :=$20
+keyin_bit       :=$21
+keycode_offset  :=$22
+keydown         :=$23
+keydown_prev    :=$24
 
 nes_header                      ;  iNESヘッダ
         ?="NES",$1A             ;  "NES" Header
@@ -312,30 +334,6 @@ ppu_update_tile
         (nmt_update_len)=X      ;  stx nmt_update_len
         #=!                     ;  rts
 
-
-;;
-;; gamepad
-;;
-
-PAD_A       :=$01
-PAD_B       :=$02
-PAD_SELECT  :=$04
-PAD_START   :=$08
-PAD_U       :=$10
-PAD_U_NOT   :=$ef
-PAD_D       :=$20
-PAD_D_NOT   :=$df
-PAD_L       :=$40
-PAD_L_NOT   :=$bf
-PAD_R       :=$80
-PAD_R_NOT   :=$7f
-
-;; arrow key
-ARROW_U     :=$02
-ARROW_R     :=$04
-ARROW_L     :=$08
-ARROW_D     :=$10
-
 ;; gamepad_poll: this reads the gamepad state into the variable labelled "gamepad"
 ;;   This only reads the first gamepad, and also if DPCM samples are played they can
 ;;   conflict with gamepad reading, which may give incorrect results.
@@ -378,6 +376,8 @@ main                        ;     ; setup
     A=0
     (p_timer)=A
     (buttons)=A
+    (keydown)=A
+    (keydown_prev)=A
                             ;     ; show the screen
     !=draw_cursor           ;     jsr draw_cursor
     !=ppu_update            ;     jsr ppu_update
@@ -393,7 +393,7 @@ main                        ;     ; setup
     #=.draw                 ;         jmp @draw ; start trumps everything, don't check other buttons
 .2                          ;     :
 
-    !=move_player
+    !=move_cursor
     A=(gamepad)             ;     lda gamepad
     A=A&PAD_SELECT          ;     and #PAD_SELECT
     ;=EQ,.7                 ;     beq :+
@@ -410,7 +410,7 @@ main                        ;     ; setup
     !=push_a_btn                ;         jsr push_a
 .9                          ;     :
     !=read_keyboard
-    !=disp_keyin_data
+    !=display_keyin_char
 
 .draw                       ;;@draw:
                             ;     ; draw everything and finish the frame
@@ -419,7 +419,7 @@ main                        ;     ; setup
                             ;     ; keep doing this forever!
     #=.loop                 ;     jmp @loop
 
-move_player
+move_cursor
     !=is_up_key_pressed
     ;=EQ,.check_down_key
     A=(buttons)             ;  check state
@@ -429,7 +429,6 @@ move_player
     (buttons)=A
 .1
     #=!
-
 .check_down_key
     !=is_down_key_pressed
     ;=EQ,.check_left_key
@@ -440,18 +439,16 @@ move_player
     (buttons)=A
 .2
     #=!
-
 .check_left_key
     !=is_left_key_pressed
     ;=EQ,.check_right_key
     A=(buttons)             ;  check state
     ;=NE,.3
-    !=push_l                ;         jsr push_l
+    !=push_l
     A=1                     ;  set flag on
     (buttons)=A
 .3
     #=!
-
 .check_right_key
     !=is_right_key_pressed
     ;=EQ,.no_button_pressed
@@ -462,7 +459,6 @@ move_player
     (buttons)=A
 .4
     #=!
-
 .no_button_pressed
     A=0                     ;  reset button pushed
     (buttons)=A             ;  because no button pushed
@@ -515,42 +511,213 @@ is_right_key_pressed
     A=A&ARROW_R
     #=!
 
+display_keyin_char
+    ; initialize keydown state for this cycle
+    A=0
+    (keydown)=A
+
+    ; initialize keyin and keycode variables
+    A=0
+    (keyin_offset)=A
+    A=1
+    (keyin_bit)=A
+    A=0
+    (keycode_offset)=A
+
+    !=disp_keyin_data
+.1    
+    (keyin_offset)=+
+    A=(keyin_offset)
+    ;=A>8 #=.2
+    A=<<<
+    (keycode_offset)=A
+    A=1
+    (keyin_bit)=A
+    !=disp_keyin_data
+    #=.1
+.2
+    ; update last keydown state for next cycle
+    A=(keydown)
+    (keydown_prev)=A
+
+    #=!
+
+disp_keyin_data
+    !=keyboard_test
+    ;=EQ,.bit2
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char              ; then call put_char
+
+.remains_pressed
+    (keydown)=+             ; mark new-keydown on
+    #=!
+
+.bit2
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit3
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit3
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit4
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit4
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit5
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit5
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit6
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit6
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit7
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit7
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.bit8
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+    #=!
+
+.bit8
+    (keycode_offset)=+
+    (keyin_bit)=<
+    !=keyboard_test
+    ;=EQ,.keys_not_pressed
+    A=(keydown_prev)        ; check keydown state in previous cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    A=(keydown)             ; check keydown state in this cycle
+    ;=NE,.remains_pressed   ; if keydown off
+    !=put_char
+    (keydown)=+
+.keys_not_pressed
+    #=!
+
+; test keyin data
+; IN
+;   keyin_offset, keyin_bit
+; USE A, X
+; 
+keyboard_test
+    ; read key data
+    X=(keyin_offset)
+    A=(keyin_data+X)
+    A=A^$ff
+    A=A&(keyin_bit)
+    #=!
+
+; put char at cursor pos and shift right
+; IN
+;   keycode_offset, cursor_x, cursor_y
+; USE A, X, Y
+put_char
+    Y=(cursor_y)
+    X=(keycode_offset)
+    A=(keycode_table+X)
+    X=(cursor_x)
+    
+    !=ppu_update_tile
+
+    ; xが右端でなければ1つ右に進める
+    A=(cursor_x)
+    ;=A<31 (cursor_x)=+ #=!
+
+    ; 右端なら次の行の先頭に移動
+    A=0
+    (cursor_x)=A
+    (cursor_y)=+
+    #=!
+
 ;-------------------------------------------------------------------------------
 
 read_keyboard               ;  ReadKeyboard:
-        A=%00000101             ;          lda #%00000101          ; デバイス選択＆リセット
-        (KBD_CTRL)=A            ;          sta JOY1
-                                ;  
-        !=kbd_wait2             ;          jsr Wait2
-                                ;  
-        X=0                     ;          ldx #$00
-.1      A=%00000100             ;        - lda #%00000100          ; 下位データを指定
-        (KBD_CTRL)=A            ;          sta JOY1
-                                ;  
-        !=kbd_wait1             ;          jsr Wait1
-                                ;  
-        A=(KBD_IO)              ;          lda JOY2                ; 下位データ読込
-        A=>                     ;          lsr
-        A=A&$0f                 ;          and #$0F
-        (keyin_data+X)=A        ;          sta KeyData ,x
-                                ;  
-        A=%00000110             ;          lda #%00000110          ; 上位データを指定
-        (KBD_CTRL)=A            ;          sta JOY1
-                                ;  
-        !=kbd_wait1             ;          jsr Wait1
-                                ;  
-        A=(KBD_IO)              ;          lda JOY2                ; 上位データ読込
-        A=<<<                   ;          asl *3
-        A=A&$f0                 ;          and #$F0
-        A=A|(keyin_data+X)      ;          ora KeyData ,x          ; 下位データと上位データを合成
-        (keyin_data+X)=A        ;          sta KeyData ,x
-                                ;  
-        X=+                     ;          inx
-        T=X-9                   ;          cpx #$09
-        ;=NE,.1                 ;          bne -
-                                ;  
-        #=!                     ;          rts
-                                ;  
+        A=%00000101             ;   lda #%00000101    ; デバイス選択＆リセット
+        (KBD_CTRL)=A            ;   sta JOY1
+                                ;
+        !=kbd_wait2             ;   jsr Wait2
+                                ;
+        X=0                     ;   ldx #$00
+.1      A=%00000100             ; - lda #%00000100    ; 下位データを指定
+        (KBD_CTRL)=A            ;   sta JOY1
+                                ;
+        !=kbd_wait1             ;   jsr Wait1
+                                ;
+        A=(KBD_IO)              ;   lda JOY2          ; 下位データ読込
+        A=>                     ;   lsr
+        A=A&$0f                 ;   and #$0F
+        (keyin_data+X)=A        ;   sta KeyData ,x
+                                ;
+        A=%00000110             ;   lda #%00000110    ; 上位データを指定
+        (KBD_CTRL)=A            ;   sta JOY1
+                                ;
+        !=kbd_wait1             ;   jsr Wait1
+                                ;
+        A=(KBD_IO)              ;   lda JOY2          ; 上位データ読込
+        A=<<<                   ;   asl *3
+        A=A&$f0                 ;   and #$F0
+        A=A|(keyin_data+X)      ;   ora KeyData ,x    ; 下位データと上位データを合成
+        (keyin_data+X)=A        ;   sta KeyData ,x
+                                ;
+        X=+                     ;   inx
+        T=X-9                   ;   cpx #$09
+        ;=NE,.1                 ;   bne -
+                                ;
+        #=!                     ;   rts
+                                ;
                                 ;  ;-------------------------------------------------------------------------------
 kbd_wait1                       ;  Wait1:                          ; ウエイト
         Y=8                     ;          ldy #$08
@@ -560,14 +727,6 @@ kbd_wait1                       ;  Wait1:                          ; ウエイ�
 kbd_wait2                       ;  Wait2:
         #=!                     ;          rts
 
-disp_keyin_data
-        X=0
-        A=(keyin_data+X)
-        A=A&$0f
-        A=A|$30
-        Y=26                ;  Y座標
-        !=ppu_update_tile
-        #=!
 
 ;; Aの値をhex2文字に変換する
 numhex
@@ -601,17 +760,19 @@ push_u                      ;  push_u:
 push_d                      ;  push_d:
     (cursor_y)=+            ;      inc cursor_y
     A=(cursor_y)            ;      lda cursor_y
-    ;=A>30 A=0 (cursor_y)=A ;  ; wrap over L30
+    ;=A>29 A=0 (cursor_y)=A ;  wrap over L29
 .1                          ;      :
     #=!                     ;      rts
 
 push_l                      ;  push_l:
-    (cursor_x)=-            ;      dec cursor_x
+    A=(cursor_x)
+    ;=A>1 (cursor_x)=-      ;      dec cursor_x
 .1
     #=!                     ;      rts
 
 push_r                      ;  push_r:
-    (cursor_x)=+            ;      inc cursor_x
+    A=(cursor_x)
+    ;=A<30 (cursor_x)=+
 .1
     #=!                     ;      rts
 
@@ -672,17 +833,12 @@ setup_background                ;  setup_background:
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
                                 ;      ; empty nametable
-        ;  '!' から '~' までを範囲としてコードを変化させる
-        ;  SPC ' ' $20 = %0010 0000
-        ;  TLD '~' $7e = %0111 1110
-        A=$21                   ;  初期値
+        A=$20                   ;  初期値
         Y=30                    ;      ldy #30 ; 30 rows
 .1                              ;      :
         X=32                    ;          ldx #32 ; 32 columns
 .2                              ;          :
         (PPU_VRAM_IO)=A         ;              sta $2007
-        A=A+1
-        ;=A>$7e A=$21
         X=-                     ;              dex
         ;=NE,.2                 ;              bne :-
         Y=-                     ;          dey
@@ -713,6 +869,27 @@ example_palette
         ?=$0F,$14,$24,$34   ;  sp1 purple
         ?=$0F,$1B,$2B,$3B   ;  sp2 teal
         ?=$0F,$12,$22,$32   ;  sp3 marine
+
+keycode_table
+        ; -- keyboard matrix (8x9) -- 
+        ; F8  RET [  ]   KANA RSFT ￥  STOP
+        ; F7  @   ;  :   _    /    -   ^
+        ; F6  O   L  K   ,    .    P   0
+        ; F5  I   U  J   M    N    9   8
+        ; F4  Y   G  H   B    V    7   6
+        ; F3  T   R  D   F    C    5   4
+        ; F2  W   S  A   X    Z    E   3
+        ; F1  ESC Q  CTR LSFT GRPH 1   2
+        ; CLR ↑   →  ←   ↓    SPC  DEL INS
+        ?="..[]...."
+        ?=".@;:_/-^"
+        ?=".OLK,.P0"
+        ?=".IUJMN98"
+        ?=".YGHBV76"
+        ?=".TRDFC54"
+        ?=".WSAXZE3"
+        ?="..Q...12"
+        ?="..... .."
 
         $=$00,$fffa-*       ;;.segment "VECINFO"                       
         ?=nmi               ;         .word        $0000
