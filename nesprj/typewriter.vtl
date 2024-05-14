@@ -66,8 +66,8 @@ nmi_count       :=$01           ;  nmi_count:      .res 1 ; is incremented every
 nmi_ready       :=$02           ;  nmi_ready:      .res 1 ; set to 1 to push a PPU frame update,
                                 ;                         ; 2 to turn rendering off next NMI
 nmt_update_len  :=$03           ;  nmt_update_len: .res 1 ; number of bytes in nmt_update buffer
-
-
+scroll_y        :=$04           ;  scroll_y:       .res 1 ; y scroll position
+scroll_nmt      :=$05           ;  scroll_nmt:     .res 1 ; nametable select (0-3 = $2000,$2400,$2800,$2C00)
 
 temp            :=$07           ;  temp:           .res 1 ; temporary variable
 gamepad         :=$08           ;  gamepad:        .res 1
@@ -80,26 +80,25 @@ offset_x        :=$0e
 offset_y        :=$0f
 buttons         :=$10           ;  button push state
 p_timer         :=$11           ;  player animation timer
-
 xsave           :=$12
 hex_l           :=$13
 hex_h           :=$14
 tmp1            :=$15
 tmp2            :=$16
-
-
 keyin_data      :=$17           ;  9 bytes
 keyin_offset    :=$20
 keyin_bit       :=$21
 keycode_offset  :=$22
 keydown         :=$23
 keydown_prev    :=$24
+addrhi          :=$25
+addrlo          :=$26
 
 nes_header                      ;  iNESヘッダ
         ?="NES",$1A             ;  "NES" Header
         ?=$02                   ;   PRG-BANKS
         ?=$01                   ;   CHR-BANKS
-        ?=$01                   ;   horizontal Mirror
+        ?=$00                   ;   vertical Mirror
         ?=$00                   ;   
         ?=$00,$00,$00,$00       ;   
         ?=$00,$00,$00,$00       ;   
@@ -227,7 +226,7 @@ nmi                             ;  nmi:
         A=0                     ;      lda #0
         (nmt_update_len)=A      ;      sta nmt_update_len
 .scroll                         ;  @scroll:
-        A=0
+        A=(scroll_nmt)          ;      lda scroll_nmt
         A=A&%00000011           ;      and #%00000011 ; keep only lowest 2 bits to prevent error
         A=A|%10001000           ;      ora #%10001000
         (PPU_CTRL1)=A           ;      sta $2000
@@ -235,7 +234,8 @@ nmi                             ;  nmi:
         A=0                     ;      ; set value of scroll_x
         (PPU_VRAM_ADDR1)=A      ;      sta $2005
 
-        A=0                     ;      ; set value of scroll_y
+        A=(scroll_y)            ;      ; set value of scroll_y
+        A=<<<                   ;       A=A*8
         (PPU_VRAM_ADDR1)=A      ;      sta $2005
                                 ;      ; enable rendering
         A=%00011110             ;      lda #%00011110
@@ -292,21 +292,26 @@ ppu_off                         ;  ppu_off:
 
 ;; ppu_address_tile: use with rendering off, sets memory address to tile at X/Y, ready for a $2007 write
 ;;;   Y =  0- 31 nametable $2000
-;;;   Y = 32- 63 nametable $2400
-;;;   Y = 64- 95 nametable $2800
-;;;   Y = 96-127 nametable $2C00
+;;;   Y = 32- 63 nametable $2800
 ppu_address_tile                ;  ppu_address_tile:
         A=(PPU_STATUS)          ;      lda $2002 ; reset latch
+        A=$20
+        (addrhi)=A              ; set base address
         A=Y                     ;      tya
-        A=>>>                   ;      lsr *3
-        A=A|$20                 ;      ora #$20 ; high bits of Y + $20
-        (PPU_VRAM_ADDR2)=A      ;      sta $2006
+        ;=A<32 #=.1
+          [=A
+          A=$28
+          (addrhi)=A
+          A=]
+          A=A-32
+.1
+        A=>>>
+        A=A+(addrhi)
         A=Y                     ;      tya
         A=<<<<<                 ;      asl *5
-        (temp)=A                ;      sta temp
+        (addrlo)=A              ;      sta temp
         A=X                     ;      txa
-        A=A|(temp)              ;      ora temp
-        (PPU_VRAM_ADDR2)=A      ;      sta $2006 ; low bits of Y + X
+        A=A|(addrlo)            ;      ora temp
         #=!                     ;      rts
 
 
@@ -378,6 +383,8 @@ main                        ;     ; setup
     (buttons)=A
     (keydown)=A
     (keydown_prev)=A
+    (scroll_nmt)=A
+    (scroll_y)=A
                             ;     ; show the screen
     !=draw_cursor           ;     jsr draw_cursor
     !=ppu_update            ;     jsr ppu_update
@@ -389,7 +396,7 @@ main                        ;     ; setup
     A=(gamepad)             ;     lda gamepad
     A=A&PAD_START           ;     and #PAD_START
     ;=EQ,.2                 ;     beq :+
-
+    !=push_start            ;         jsr push_start
     #=.draw                 ;         jmp @draw ; start trumps everything, don't check other buttons
 .2                          ;     :
 
@@ -543,108 +550,21 @@ display_keyin_char
     #=!
 
 disp_keyin_data
+.loop
     !=keyboard_test
-    ;=EQ,.bit2
+    ;=EQ,.next
     A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
+    ;=NE,.keydown           ; if keydown off
     A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
+    ;=NE,.keydown           ; if keydown off
     !=put_char              ; then call put_char
-
-.remains_pressed
+.keydown
     (keydown)=+             ; mark new-keydown on
     #=!
-
-.bit2
+.next
     (keycode_offset)=+
     (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit3
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit3
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit4
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit4
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit5
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit5
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit6
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit6
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit7
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit7
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.bit8
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-    #=!
-
-.bit8
-    (keycode_offset)=+
-    (keyin_bit)=<
-    !=keyboard_test
-    ;=EQ,.keys_not_pressed
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.remains_pressed   ; if keydown off
-    !=put_char
-    (keydown)=+
-.keys_not_pressed
+    ;=CC,.loop              ; bit8 has done.
     #=!
 
 ; test keyin data
@@ -660,12 +580,18 @@ keyboard_test
     A=A&(keyin_bit)
     #=!
 
+debug_print
+
+    #=!
+
 ; put char at cursor pos and shift right
 ; IN
 ;   keycode_offset, cursor_x, cursor_y
 ; USE A, X, Y
 put_char
-    Y=(cursor_y)
+    A=(cursor_y)
+    A=A+(scroll_y)
+    Y=A
     X=(keycode_offset)
     A=(keycode_table+X)
     X=(cursor_x)
@@ -680,6 +606,8 @@ put_char
     A=0
     (cursor_x)=A
     (cursor_y)=+
+    ; 下端なら2行目に移動
+    ;=Y>31 (cursor_y)=A
     #=!
 
 ;-------------------------------------------------------------------------------
@@ -760,7 +688,7 @@ push_u                      ;  push_u:
 push_d                      ;  push_d:
     (cursor_y)=+            ;      inc cursor_y
     A=(cursor_y)            ;      lda cursor_y
-    ;=A>29 A=0 (cursor_y)=A ;  wrap over L29
+    ;=A>30 A=0 (cursor_y)=A ;  wrap over L29
 .1                          ;      :
     #=!                     ;      rts
 
@@ -777,15 +705,26 @@ push_r                      ;  push_r:
     #=!                     ;      rts
 
 push_select                 ;  push_select:
-                            ;      ; turn off rendering so we can manually update entire nametable
-    !=ppu_off               ;      jsr ppu_off
-    !=setup_background      ;      jsr setup_background
-.1                          ;      ; wait for user to release select before continuing
-                            ;      :
-    !=gamepad_poll          ;          jsr gamepad_poll
-    A=(gamepad)             ;          lda gamepad
-    A=A&PAD_SELECT          ;          and #PAD_SELECT
-    ;=NE,.1                 ;          bne :-
+    A=(scroll_y)            ;
+    ;=A>1 (scroll_y)=- #=.1
+      A=29
+      (scroll_y)=A
+      A=(scroll_nmt)        ; toggle the bit of nametable select
+      A=A^$02
+      (scroll_nmt)=A
+.1                          ;      :
+    #=!                     ;      rts
+
+push_start                  ;  push_start:
+    (scroll_y)=+            ;      inc scroll_y
+    A=(scroll_y)            ;      lda scroll_y
+    ;=A<30 #=.1
+      A=0
+      (scroll_y)=A
+      A=(scroll_nmt)        ;  ; toggle the bit of nametable select
+      A=A^$02
+      (scroll_nmt)=A
+.1                          ;      :
     #=!                     ;      rts
 
 push_b                      ;  push_b:
@@ -833,7 +772,7 @@ setup_background                ;  setup_background:
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
                                 ;      ; empty nametable
-        A=$20                   ;  初期値
+        A=$2e                   ;
         Y=30                    ;      ldy #30 ; 30 rows
 .1                              ;      :
         X=32                    ;          ldx #32 ; 32 columns
@@ -851,20 +790,41 @@ setup_background                ;  setup_background:
         X=-                     ;          dex
         ;=NE,.3                 ;          bne :-
 
-                                ;;; draw map
-        A=$20                   ;  setup ppu write address
-        (PPU_VRAM_ADDR2)=A
-        A=$00
-        (PPU_VRAM_ADDR2)=A
+        A=(PPU_STATUS)          ;      lda $2002 ; reset latch
+        A=$28                   ;      lda #$28
+        (PPU_VRAM_ADDR2)=A      ;      sta $2006
+        A=$00                   ;      lda #$00
+        (PPU_VRAM_ADDR2)=A      ;      sta $2006
+        A=$20                   ;
+        Y=30                    ;      ldy #30 ; 30 rows
+.4                              ;      :
+        X=32                    ;          ldx #32 ; 32 columns
+.5                              ;          :
+        (PPU_VRAM_IO)=A         ;              sta $2007
+        A=A+1
+        ;=A>$80 A=$20
+        X=-                     ;              dex
+        ;=NE,.5                 ;              bne :-
+        Y=-                     ;          dey
+        ;=NE,.4                 ;          bne :--
+
+
+        ; set attributes of bottom screen
+        X=64                    ;      ldx #64 ; 64 bytes
+        A=%01010101
+.6                              ;      :
+        (PPU_VRAM_IO)=A         ;          sta $2007
+        X=-                     ;          dex
+        ;=NE,.6                 ;          bne :-
 
         #=!                     ;      rts
 
 ;; .segment "RODATA"
 example_palette
-        ?=$0F,$10,$38,$2d   ;  bg0 purple/pink
-        ?=$0F,$09,$19,$29   ;  bg1 green
+        ?=$0F,$10,$00,$30   ;  bg3 greyscale
+        ?=$0C,$09,$19,$29   ;  bg1 green
+        ?=$0F,$15,$26,$37   ;  bg0 purple/pink
         ?=$0F,$01,$11,$21   ;  bg2 blue
-        ?=$0F,$00,$10,$30   ;  bg3 greyscale
         ?=$0F,$35,$28,$38   ;  sp0 yellow
         ?=$0F,$14,$24,$34   ;  sp1 purple
         ?=$0F,$1B,$2B,$3B   ;  sp2 teal
