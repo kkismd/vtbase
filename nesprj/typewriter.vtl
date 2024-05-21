@@ -290,54 +290,62 @@ ppu_off                         ;  ppu_off:
         ;=NE,.1                 ;          bne :-
         #=!                     ;      rts
 
-;; ppu_address_tile: use with rendering off, sets memory address to tile at X/Y, ready for a $2007 write
-;;;   Y =  0- 31 nametable $2000
-;;;   Y = 32- 63 nametable $2800
-ppu_address_tile                ;  ppu_address_tile:
-        A=(PPU_STATUS)          ;      lda $2002 ; reset latch
-        A=$20
-        (addrhi)=A              ; set base address
-        A=Y                     ;      tya
-        ;=A<32 #=.1
-          [=A
-          A=$28
-          (addrhi)=A
-          A=]
-          A=A-32
+
+; ppu_address_tile  calculate ppu address from X,Y
+; IN
+;   X -- X coord
+;   Y -- Y coord
+; USE
+;   A -- accumulate
+; OUT
+;   addrhi -- ppu address hi
+;   addrlo -- ppu address lo
+ppu_address_tile
+        A=Y
+        ; if A < 30 then base addr = $20
+        ;=A<30 A=$20 (addrhi)=A #=.1
+            ; else y -= 30 and base addr = $28
+            A=A-30
+            Y=A
+            A=$28
+            (addrhi)=A
 .1
+        (addrhi)=A
+        A=Y
         A=>>>
         A=A+(addrhi)
-        A=Y                     ;      tya
-        A=<<<<<                 ;      asl *5
-        (addrlo)=A              ;      sta temp
-        A=X                     ;      txa
-        A=A|(addrlo)            ;      ora temp
-        #=!                     ;      rts
-
-
-;; ppu_update_tile: can be used with rendering on, sets the tile at X/Y to tile A next time you call ppu_update
-ppu_update_tile
-        [=A                     ;  pha ; temporarily store A on stack
-        A=X                     ;  txa
-        [=A                     ;  pha ; temporarily store X on stack
-        X=(nmt_update_len)      ;  ldx nmt_update_len
-        A=Y                     ;  tya
-        A=>>>                   ;  lsr *3
-        A=A|$20                 ;  ora #$20 ; high bits of Y + $20
-        (nmt_update+X)=A        ;  sta nmt_update, X
-        X=+                     ;  inx
+        (addrhi)=A
         A=Y                     ;  tya
         A=<<<<<                 ;  asl *5
-        (temp)=A                ;  sta temp
-        A=]                     ;  pla ; recover X value (but put in A)
-        A=A|(temp)              ;  ora temp
-        (nmt_update+X)=A        ;  sta nmt_update, X
-        X=+                     ;  inx
-        A=]                     ;  pla ; recover A value (tile)
-        (nmt_update+X)=A        ;  sta nmt_update, X
+        (addrlo)=A
+        A=X
+        A=A|(addrlo)
+        (addrlo)=A
+
+        #=!
+
+; IN
+;   A -- tile char
+;   X -- X coord
+;   Y -- Y coord
+; USE
+;   addrhi -- ppu address hi
+;   addrlo -- ppu address lo
+ppu_update_tile
+        [=A                     ; save tile char
+        !=ppu_address_tile      ; calculate ppu address
+        X=(nmt_update_len)
+        A=(addrhi)
+        (nmt_update+X)=A        ; write address hi
+        X=+                     ; advance pointer
+        A=(addrlo)
+        (nmt_update+X)=A        ; write address lo
+        X=+                     ; advance pointer
+        A=]                     ; restore tile char
+        (nmt_update+X)=A
         X=+                     ;  inx
         (nmt_update_len)=X      ;  stx nmt_update_len
-        #=!                     ;  rts
+        #=!
 
 ;; gamepad_poll: this reads the gamepad state into the variable labelled "gamepad"
 ;;   This only reads the first gamepad, and also if DPCM samples are played they can
@@ -522,27 +530,22 @@ display_keyin_char
     ; initialize keydown state for this cycle
     A=0
     (keydown)=A
-
     ; initialize keyin and keycode variables
-    A=0
     (keyin_offset)=A
-    A=1
-    (keyin_bit)=A
-    A=0
     (keycode_offset)=A
-
-    !=disp_keyin_data
-.1    
-    (keyin_offset)=+
-    A=(keyin_offset)
-    ;=A>8 #=.2
-    A=<<<
-    (keycode_offset)=A
-    A=1
     (keyin_bit)=A
-    !=disp_keyin_data
-    #=.1
-.2
+    (keyin_bit)=+
+.loop    
+      !=disp_keyin_data
+      (keyin_offset)=+
+      A=(keyin_offset)
+      ;=A>8 #=.end
+      A=<<<
+      (keycode_offset)=A
+      A=1
+      (keyin_bit)=A
+      #=.loop
+.end
     ; update last keydown state for next cycle
     A=(keydown)
     (keydown_prev)=A
@@ -559,7 +562,8 @@ disp_keyin_data
     ;=NE,.keydown           ; if keydown off
     !=put_char              ; then call put_char
 .keydown
-    (keydown)=+             ; mark new-keydown on
+    !=scan_code
+    (keydown)=A             ; mark new-keydown on
     #=!
 .next
     (keycode_offset)=+
@@ -580,8 +584,17 @@ keyboard_test
     A=A&(keyin_bit)
     #=!
 
-debug_print
-
+; keyboard matrix code
+; IN
+;   keyin_offset, keyin_bit
+; OUT A
+; USE temp
+scan_code
+    A=(keyin_offset)
+    A=<<<<
+    (temp)=A
+    A=(keyin_bit)
+    A=A|(temp)
     #=!
 
 ; put char at cursor pos and shift right
@@ -706,25 +719,12 @@ push_r                      ;  push_r:
 
 push_select                 ;  push_select:
     A=(scroll_y)            ;
-    ;=A>1 (scroll_y)=- #=.1
-      A=29
-      (scroll_y)=A
-      A=(scroll_nmt)        ; toggle the bit of nametable select
-      A=A^$02
-      (scroll_nmt)=A
-.1                          ;      :
+    ;=A>1 (scroll_y)=-
     #=!                     ;      rts
 
 push_start                  ;  push_start:
-    (scroll_y)=+            ;      inc scroll_y
     A=(scroll_y)            ;      lda scroll_y
-    ;=A<30 #=.1
-      A=0
-      (scroll_y)=A
-      A=(scroll_nmt)        ;  ; toggle the bit of nametable select
-      A=A^$02
-      (scroll_nmt)=A
-.1                          ;      :
+    ;=A<29 (scroll_y)=+
     #=!                     ;      rts
 
 push_b                      ;  push_b:
@@ -772,16 +772,26 @@ setup_background                ;  setup_background:
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
                                 ;      ; empty nametable
-        A=$2e                   ;
         Y=30                    ;      ldy #30 ; 30 rows
-.1                              ;      :
+.loop2                              ;      :
         X=32                    ;          ldx #32 ; 32 columns
-.2                              ;          :
-        (PPU_VRAM_IO)=A         ;              sta $2007
+.loop1                              ;          :
         X=-                     ;              dex
-        ;=NE,.2                 ;              bne :-
+        ;=EQ,.nextline
+        ; put space
+        A=$20                   ;
+        (PPU_VRAM_IO)=A         ;              sta $2007
+        ;=NE,.loop1                 ;              bne :-
+.nextline
+        A=Y A=A+1 A=>
+        (temp)=A
+        A=$40
+        A=A-(temp)
+        ;=A>$3a A=A+$7
+        (PPU_VRAM_IO)=A         ;              sta $2007
+
         Y=-                     ;          dey
-        ;=NE,.1                 ;          bne :--
+        ;=NE,.loop2                 ;          bne :--
                                 ;      ; set all attributes to 0
         X=64                    ;      ldx #64 ; 64 bytes
         A=0
