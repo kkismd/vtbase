@@ -805,18 +805,27 @@ setup_background                ;  setup_background:
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
-        A=$20                   ;
+
         Y=30                    ;      ldy #30 ; 30 rows
-.4                              ;      :
+.loop4                              ;      :
         X=32                    ;          ldx #32 ; 32 columns
-.5                              ;          :
-        (PPU_VRAM_IO)=A         ;              sta $2007
-        A=A+1
-        ;=A>$80 A=$20
+.loop3                              ;          :
         X=-                     ;              dex
-        ;=NE,.5                 ;              bne :-
+        ;=EQ,.nextline2
+        ; put space
+        A=$20                   ;
+        (PPU_VRAM_IO)=A         ;              sta $2007
+        ;=NE,.loop3                 ;              bne :-
+.nextline2
+        A=Y A=A+1 A=>
+        (temp)=A
+        A=$40
+        A=A-(temp)
+        ;=A>$3a A=A+$7
+        (PPU_VRAM_IO)=A         ;              sta $2007
+
         Y=-                     ;          dey
-        ;=NE,.4                 ;          bne :--
+        ;=NE,.loop4                 ;          bne :--
 
 
         ; set attributes of bottom screen
@@ -831,10 +840,10 @@ setup_background                ;  setup_background:
 
 ;; .segment "RODATA"
 example_palette
-        ?=$0F,$10,$00,$30   ;  bg3 greyscale
-        ?=$0C,$09,$19,$29   ;  bg1 green
-        ?=$0F,$15,$26,$37   ;  bg0 purple/pink
-        ?=$0F,$01,$11,$21   ;  bg2 blue
+        ?=$0F,$20,$0F,$30   ;  bg0 white / black
+        ?=$0C,$20,$01,$29   ;  bg1 white / blue
+        ?=$0F,$15,$26,$37   ;  bg2 purple/pink
+        ?=$0F,$01,$11,$21   ;  bg3 blue
         ?=$0F,$35,$28,$38   ;  sp0 yellow
         ?=$0F,$14,$24,$34   ;  sp1 purple
         ?=$0F,$1B,$2B,$3B   ;  sp2 teal
