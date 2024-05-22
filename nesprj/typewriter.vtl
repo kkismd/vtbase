@@ -294,23 +294,29 @@ ppu_off                         ;  ppu_off:
 ; ppu_address_tile  calculate ppu address from X,Y
 ; IN
 ;   X -- X coord
-;   Y -- Y coord
+;   Y -- Y coord (scroll_y + cursor_y)
 ; USE
 ;   A -- accumulate
 ; OUT
 ;   addrhi -- ppu address hi
 ;   addrlo -- ppu address lo
 ppu_address_tile
+        A=(scroll_nmt)              ; check scroll_area
+        ;=A=0 #=.top                ; if A == 2
+.bottom
+        A=$28                       ; base addr = $28
+        (addrhi)=A
+        #=.cont
+.top
         A=Y
         ; if A < 30 then base addr = $20
-        ;=A<30 A=$20 (addrhi)=A #=.1
+        ;=A<30 A=$20 (addrhi)=A #=.cont
             ; else y -= 30 and base addr = $28
             A=A-30
             Y=A
             A=$28
             (addrhi)=A
-.1
-        (addrhi)=A
+.cont
         A=Y
         A=>>>
         A=A+(addrhi)
@@ -717,15 +723,30 @@ push_r                      ;  push_r:
 .1
     #=!                     ;      rts
 
-push_select                 ;  push_select:
-    A=(scroll_y)            ;
-    ;=A>1 (scroll_y)=-
-    #=!                     ;      rts
+push_select
+    A=(scroll_nmt)          ; if scroll_nmt == 2
+    ;=A=0 #=.1
+    A=0                     ; scroll_nmt = 0, scroll_y = 29
+    (scroll_nmt)=A
+    A=29
+    (scroll_y)=A
+    #=!
+.1
+    A=(scroll_y)            ; if scroll_y > 0
+    ;=A>1 (scroll_y)=-      ; scroll_y--
+    #=!
 
-push_start                  ;  push_start:
-    A=(scroll_y)            ;      lda scroll_y
-    ;=A<29 (scroll_y)=+
-    #=!                     ;      rts
+push_start
+    A=(scroll_nmt)          ; if scroll_nmt == 2 then return
+    ;=A=2 #=!
+    A=(scroll_y)            ; if scroll_y < 29 then scroll_y++
+    ;=A<29 (scroll_y)=+ #=!
+    A=2                     ; else scroll_nmt = 2, scroll_y = 0
+    (scroll_nmt)=A
+    A=0
+    (scroll_y)=A
+    #=!
+
 
 push_b                      ;  push_b:
     A=(cursor_x)            ;      lda cursor_x
@@ -772,26 +793,7 @@ setup_background                ;  setup_background:
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
                                 ;      ; empty nametable
-        Y=30                    ;      ldy #30 ; 30 rows
-.loop2                              ;      :
-        X=32                    ;          ldx #32 ; 32 columns
-.loop1                              ;          :
-        X=-                     ;              dex
-        ;=EQ,.nextline
-        ; put space
-        A=$20                   ;
-        (PPU_VRAM_IO)=A         ;              sta $2007
-        ;=NE,.loop1                 ;              bne :-
-.nextline
-        A=Y A=A+1 A=>
-        (temp)=A
-        A=$40
-        A=A-(temp)
-        ;=A>$3a A=A+$7
-        (PPU_VRAM_IO)=A         ;              sta $2007
-
-        Y=-                     ;          dey
-        ;=NE,.loop2                 ;          bne :--
+        !=init_nametable
                                 ;      ; set all attributes to 0
         X=64                    ;      ldx #64 ; 64 bytes
         A=0
@@ -806,27 +808,7 @@ setup_background                ;  setup_background:
         A=$00                   ;      lda #$00
         (PPU_VRAM_ADDR2)=A      ;      sta $2006
 
-        Y=30                    ;      ldy #30 ; 30 rows
-.loop4                              ;      :
-        X=32                    ;          ldx #32 ; 32 columns
-.loop3                              ;          :
-        X=-                     ;              dex
-        ;=EQ,.nextline2
-        ; put space
-        A=$20                   ;
-        (PPU_VRAM_IO)=A         ;              sta $2007
-        ;=NE,.loop3                 ;              bne :-
-.nextline2
-        A=Y A=A+1 A=>
-        (temp)=A
-        A=$40
-        A=A-(temp)
-        ;=A>$3a A=A+$7
-        (PPU_VRAM_IO)=A         ;              sta $2007
-
-        Y=-                     ;          dey
-        ;=NE,.loop4                 ;          bne :--
-
+        !=init_nametable
 
         ; set attributes of bottom screen
         X=64                    ;      ldx #64 ; 64 bytes
@@ -837,6 +819,30 @@ setup_background                ;  setup_background:
         ;=NE,.6                 ;          bne :-
 
         #=!                     ;      rts
+
+init_nametable
+        Y=30                    ;      ldy #30 ; 30 rows
+.loop2                          ;      :
+        X=32                    ;          ldx #32 ; 32 columns
+.loop1                          ;          :
+        X=-                     ;              dex
+        ;=EQ,.nextline
+        ; put space
+        A=$20                   ;
+        (PPU_VRAM_IO)=A         ;              sta $2007
+        ;=NE,.loop1             ;              bne :-
+.nextline
+        A=Y A=A+1 A=>
+        (temp)=A
+        A=$40
+        A=A-(temp)
+        ;=A>$3a A=A+$7
+        (PPU_VRAM_IO)=A         ;              sta $2007
+
+        Y=-                     ;          dey
+        ;=NE,.loop2             ;          bne :--
+
+        #=!
 
 ;; .segment "RODATA"
 example_palette
