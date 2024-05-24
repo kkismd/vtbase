@@ -27,11 +27,30 @@ PAD_L           :=$40
 PAD_L_NOT       :=$bf
 PAD_R           :=$80
 PAD_R_NOT       :=$7f
-;; arrow key
-ARROW_U         :=$02
-ARROW_R         :=$04
-ARROW_L         :=$08
-ARROW_D         :=$10
+
+K_RETURN        :=$01
+K_KANA          :=$02
+K_RSHIFT        :=$03
+K_STOP          :=$04
+K_ESC           :=$05
+K_CTR           :=$06
+K_LSHIFT        :=$07
+K_GRPH          :=$08
+K_CLR           :=$09
+K_UP            :=$0A
+K_RIGHT         :=$0B
+K_LEFT          :=$0C
+K_DOWN          :=$0D
+K_DEL           :=$0E
+K_INS           :=$0F
+K_F1            :=$11
+K_F2            :=$12
+K_F3            :=$13
+K_F4            :=$14
+K_F5            :=$15
+K_F6            :=$16
+K_F7            :=$17
+K_F8            :=$18
 
 VRAM_NAME_TBL   :=$2000
 VRAM_ATTR_TBL   :=$23c0
@@ -489,47 +508,23 @@ move_cursor
 is_up_key_pressed
     A=(gamepad)
     A=A&PAD_U
-    ;=EQ,.1
-    #=!
-.1
-    A=(keyin_data+8)
-    A=A^$ff
-    A=A&ARROW_U
     #=!
 
 ; pad down button or kbd down key is pressed?
 is_down_key_pressed
     A=(gamepad)
     A=A&PAD_D
-    ;=EQ,.1
-    #=!
-.1
-    A=(keyin_data+8)
-    A=A^$ff
-    A=A&ARROW_D
     #=!
 
 ; pad left button or kbd left key is pressed?
 is_left_key_pressed
     A=(gamepad)
     A=A&PAD_L
-    ;=EQ,.1
-    #=!
-.1
-    A=(keyin_data+8)
-    A=A^$ff
-    A=A&ARROW_L
     #=!
 
 is_right_key_pressed
     A=(gamepad)
     A=A&PAD_R
-    ;=EQ,.1
-    #=!
-.1
-    A=(keyin_data+8)
-    A=A^$ff
-    A=A&ARROW_R
     #=!
 
 display_keyin_char
@@ -541,11 +536,11 @@ display_keyin_char
     (keycode_offset)=A
     (keyin_bit)=A
     (keyin_bit)=+
-.loop    
+.loop
       !=disp_keyin_data
       (keyin_offset)=+
       A=(keyin_offset)
-      ;=A>8 #=.end
+      ;=A>9 #=.end
       A=<<<
       (keycode_offset)=A
       A=1
@@ -608,13 +603,18 @@ scan_code
 ;   keycode_offset, cursor_x, cursor_y
 ; USE A, X, Y
 put_char
+    X=(keycode_offset)
+    A=(keycode_table+X)
+    ;=A<$20 #=control_char
+    [=A                     ; save char code
+
     A=(cursor_y)
     A=A+(scroll_y)
     Y=A
-    X=(keycode_offset)
-    A=(keycode_table+X)
+    A=]                     ; restore char code
     X=(cursor_x)
-    
+
+hoge
     !=ppu_update_tile
 
     ; xが右端でなければ1つ右に進める
@@ -628,6 +628,30 @@ put_char
     ; 下端なら2行目に移動
     ;=Y>31 (cursor_y)=A
     #=!
+
+; Control Key pressed.
+control_char
+    ;=A=K_UP    #=push_u
+    ;=A=K_DOWN  #=push_d
+    ;=A=K_LEFT  #=push_l
+    ;=A=K_RIGHT #=push_r
+    ;=A=K_CLR   #=push_select
+    ;=A=K_KANA  #=push_start
+
+
+   ; !=hexchar               ; scan code to digit
+   ; [=A                     ; save char code
+
+    A=(cursor_y)
+    A=A+(scroll_y)
+    Y=A
+
+   ; A=]                     ; restore char code
+   A=$7e
+
+    X=(cursor_x)
+    
+    #=hoge
 
 ;-------------------------------------------------------------------------------
 
@@ -768,7 +792,7 @@ draw_cursor                 ;  draw_cursor:
                             ;      ; y position (note, needs to be one line higher than sprite's appearance)
     A=(cursor_y)            ;      lda cursor_y
     A=<<<                   ;       x8
-    A=A-2
+    ;=A>1 A=A-1
     (OAM)=A                 ;      sta oam+(0*4)+0
                             ;      ; tile
     A=(nmi_count)           ;      lda #1
@@ -866,15 +890,15 @@ keycode_table
         ; F2  W   S  A   X    Z    E   3
         ; F1  ESC Q  CTR LSFT GRPH 1   2
         ; CLR ↑   →  ←   ↓    SPC  DEL INS
-        ?="..[]...."
-        ?=".@;:_/-^"
-        ?=".OLK,.P0"
-        ?=".IUJMN98"
-        ?=".YGHBV76"
-        ?=".TRDFC54"
-        ?=".WSAXZE3"
-        ?="..Q...12"
-        ?="..... .."
+        ?=$18,$01,"[]",$02,$03,$5C,$04
+        ?=$17,"@;:_/-^"
+        ?=$16,"OLK,.P0"
+        ?=$15,"IUJMN98"
+        ?=$14,"YGHBV76"
+        ?=$13,"TRDFC54"
+        ?=$12,"WSAXZE3"
+        ?=$11,$05,"Q",$06,$07,$08,"12"
+        ?=$09,$0A,$0B,$0C,$0D,$20,$0E,$0F
 
         $=$00,$fffa-*       ;;.segment "VECINFO"                       
         ?=nmi               ;         .word        $0000
