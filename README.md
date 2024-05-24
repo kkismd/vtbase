@@ -10,7 +10,7 @@ code image.
      1                          CHROUT=$ffd2           ; CHROUT :=$ffd2           
      2                                *=$080e          ;        *=$080e           
      3                                                   
-     4  080e a200                     ldx #$00         ;        X=#0              
+     4  080e a200                     ldx #$00         ;        X=0              
      5  0810 bd1c08             loop  lda hello,x      ; loop   A=(hello+X)       
      6  0813 20d2ff                   jsr CHROUT       ;        !=CHROUT          
      7  0816 e8                       inx              ;        X=+               
@@ -29,8 +29,7 @@ code image.
 | ADC      | A=A+n              | CLC ADC (macro command)   |
 | ADC      | A=AC+n             | ADC (add with carry)      |
 | AND      | A=A&n              |                           |
-| ASL      | <=A                |                           |
-| ASL      | A=A[1              |                           |
+| ASL      | A=<                |                           |
 | BCC      | ;=<,$1234          | IF < GOTO $1234           |
 | BCS      | ;=>,$1234          | IF >= GOTO $1234          |
 | BEQ      | ;==,$1234          | IF = GOTO $1234           |
@@ -65,18 +64,15 @@ code image.
 | LDA      | A=[$0A]+Y          | indirect indexed          |
 | LDX      | X=1                |                           |
 | LDY      | Y=1                |                           |
-| LSR      | >=A                |                           |
-| LSR      | A=A]1              |                           |
+| LSR      | A=>                |                           |
 | NOP      | .                  |                           |
 | ORA      | A=A                |                           |
 | PHA      | [=A                |                           |
 | PHP      | [=P                |                           |
 | PLA      | A=]                |                           |
 | PLP      | P=]                |                           |
-| ROL      | (=A                |                           |
-| ROR      | )=A                |                           |
-| ROL      | A=A{1              |                           |
-| ROR      | A=A}1              |                           |
+| ROL      | A=(                |                           |
+| ROR      | A=)                |                           |
 | RTI      | ~                  |                           |
 | RTS      | #=!                |                           |
 | RTS      | !                  |                           |
@@ -164,37 +160,37 @@ Note:
 
 ## symbols
 
-| 記号 | command      | expression     | VTL,GAME80                  |
-| ---- | ------------ | -------------- | --------------------------- |
-| !    | JSR          |                |                             |
-| @    | LOOP         |                | LOOP (GAME80)               |
-| #    | JMP or BRA   |                |                             |
-| $    | DATA Fill    | hex value      | print ascii code            |
-| &    | inc_bin      | AND            | High memory (VTL)           |
-| *    | ORG          | current addr   | multiply / Low memory (VTL) |
-| (    | ローテート左 | 括弧           |                             |
-| )    | ローテート右 |                | comment (VTL)               |
-| [    | PUSH         | 論理シフト左   |                             |
-| ]    | POP          | 論理シフト右   | RETURN (GAME80)             |
-| <    | 論理シフト左 | 小なり         | File出力 or ポインタ (VTL)  |
-| >    | 論理シフト右 | 大なりイコール | File入力 (VTL)              |
-| /    |              | 除算           | newline (GAME80)            |
-| ?    | データ文     |                | print string                |
-| :    | EQL          | ELSE           | Array (VTL)                 |
-| ;    | IF           | ;; コメント    |                             |
-| %    | MACRO        | bin value      | mod (VTL, GAME80)           |
-| ^    | RTS          | XOR            |                             |
-| ｜   |              | OR             |                             |
-| ｀   |              |                |                             |
-| _    | NOP          |                |                             |
-| -    |              | 減算           |                             |
-| +    | include      | 加算           |                             |
-| =    |              | 等号           |                             |
-| \    |              | 不等号         |                             |
-| ,    |              | COMMA          |                             |
-| .    |              |                | タブ出力                    |
-| '    |              | CHAR           | random number generator     |
-| "    |              | 文字列         | PRINT GAME80                |
-| {    |              | ローテート左   |                             |
-| }    |              | ローテート右   |                             |
-| ~    | RTI          | 不等号         |                             |
+| 記号 | command      | expression        | VTL,GAME80                   |
+| ---- | ------------ | ----------------- | ---------------------------- |
+| !    | JSR          |                   |                              |
+| @    | LOOP         |                   | LOOP (GAME80)                |
+| #    | JMP or BRA   |                   |                              |
+| $    | DATA Fill    | hex value         | print ascii code             |
+| &    | Include Bin  | AND               | High memory (VTL)            |
+| *    | ORG          | current addr      | multiply / Low memory (VTL)  |
+| (    | Rotate Left  | Open Parentheses  |                              |
+| )    | Rotate Right | Close Parentheses | comment (VTL)                |
+| [    | PUSH         |                   |                              |
+| ]    | POP          |                   | RETURN (GAME80)              |
+| <    | Shift Left   | Less Than         | File output or pointer (VTL) |
+| >    | Shift Right  | GTEq              | File input (VTL)             |
+| /    |              | Div               | newline (GAME80)             |
+| ?    | DATA         |                   | print string                 |
+| :    | EQL          | ELSE              | Array :expr) (VTL)           |
+| ;    | IF           | COMMENT           |                              |
+| %    | MACRO        | bin value         | mod (VTL, GAME80)            |
+| ^    |              | XOR               |                              |
+| ｜   |              | OR                |                              |
+| ｀   |              |                   |                              |
+| _    | NOP          |                   |                              |
+| -    |              | Sub               |                              |
+| +    | Include SRC  | Add               |                              |
+| =    |              | Equal             |                              |
+| \    |              | Not Equal         |                              |
+| ,    |              | COMMA             |                              |
+| .    |              |                   | TAB (GAME80)                 |
+| '    |              | CHAR              | random number generator      |
+| "    |              | String            | PRINT GAME80                 |
+| {    |              | Rotate LEft       |                              |
+| }    |              | Rotate Right      |                              |
+| ~    | RTI          | Not Equal         |                              |

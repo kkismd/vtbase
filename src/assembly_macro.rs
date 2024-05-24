@@ -236,6 +236,8 @@ fn transform_statement(statement: &Statement) -> Result<Vec<Statement>, Assembly
         .or_else(|_| dexx(statement).map(|n| transform_xx_statement(n, "X", "-")))
         .or_else(|_| inyy(statement).map(|n| transform_xx_statement(n, "Y", "+")))
         .or_else(|_| deyy(statement).map(|n| transform_xx_statement(n, "Y", "-")))
+        .or_else(|_| lsrr(statement).map(|n| transform_xx_statement(n, "A", ">")))
+        .or_else(|_| asll(statement).map(|n| transform_xx_statement(n, "A", "<")))
         .or_else(|_| stack_to(statement).map(|n| transform_stack_to_statement(n, expr)))
         .or_else(|_| {
             stack_from(statement).map(|n| transform_stack_from_statement(n, &statement.command))
@@ -321,6 +323,14 @@ fn inyy(statement: &Statement) -> Result<usize, AssemblyError> {
 
 fn deyy(statement: &Statement) -> Result<usize, AssemblyError> {
     process_xx(statement, "Y", r"^[-]+$", "deyy()")
+}
+
+fn lsrr(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "A", r"^[>]+$", "lsrr()")
+}
+
+fn asll(statement: &Statement) -> Result<usize, AssemblyError> {
+    process_xx(statement, "A", r"^[<]+$", "asll()")
 }
 
 // A=A+n -> C=0 A=AC+n

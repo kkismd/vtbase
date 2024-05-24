@@ -89,19 +89,19 @@ fn pass1_command_data_fill(
     current_address: &u16,
 ) -> Result<u16, AssemblyError> {
     let expr = &statement.expression;
-    match expr {
-        Expr::BinOp(left, Operator::Comma, right) => {
-            if let Expr::ByteNum(_) = **left {
-                let fill_count = right.evaluate(labels, current_address)?;
-                return Ok(fill_count);
-            }
-            if let Expr::WordNum(_) = **left {
-                let fill_count = right.evaluate(labels, current_address)?;
-                return Ok(fill_count * 2);
-            }
+    if let Expr::BinOp(left, Operator::Comma, right) = expr {
+        let fill_count = right.evaluate(labels, current_address)?;
+        if let Expr::ByteNum(_) = **left {
+            return Ok(fill_count);
         }
-        _ => (),
+        if let Expr::WordNum(_) = **left {
+            return Ok(fill_count * 2);
+        }
+        if let Expr::DecimalNum(_) = **left {
+            return Ok(fill_count);
+        }
     }
+    dbg!(statement);
     Err(AssemblyError::program("invalid fill command"))
 }
 
@@ -179,6 +179,8 @@ fn pass2_command_data_def(
                 if let Address::Full(address) = label.address {
                     objects.push((address & 0xff) as u8);
                     objects.push((address >> 8) as u8);
+                } else if let Address::ZeroPage(address) = label.address {
+                    objects.push(address);
                 } else {
                     dbg!(statement);
                     return Err(AssemblyError::program("invalid data command"));
@@ -186,7 +188,9 @@ fn pass2_command_data_def(
             }
             _ => {
                 dbg!(statement);
-                return Err(AssemblyError::program("invalid data command"));
+                return Err(AssemblyError::program(
+                    "invalid data command nothing matched",
+                ));
             }
         }
     }
@@ -207,6 +211,12 @@ fn pass2_command_data_fill(
             if let Expr::ByteNum(fill_value) = **left {
                 for _ in 0..fill_count {
                     objects.push(fill_value);
+                }
+                return Ok(objects);
+            }
+            if let Expr::DecimalNum(fill_value) = **left {
+                for _ in 0..fill_count {
+                    objects.push(fill_value as u8);
                 }
                 return Ok(objects);
             }

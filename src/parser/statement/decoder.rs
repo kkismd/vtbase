@@ -544,6 +544,10 @@ pub fn decode_address(
                     decode_inc(command, labels)
                 } else if op == "-" {
                     decode_dec(command, labels)
+                } else if op == ">" {
+                    decode_lsr(command, labels)
+                } else if op == "<" {
+                    decode_rol(command, labels)
                 } else {
                     decode_error(expr)
                 }
