@@ -179,6 +179,8 @@ fn pass2_command_data_def(
                 if let Address::Full(address) = label.address {
                     objects.push((address & 0xff) as u8);
                     objects.push((address >> 8) as u8);
+                } else if let Address::ZeroPage(address) = label.address {
+                    objects.push(address);
                 } else {
                     dbg!(statement);
                     return Err(AssemblyError::program("invalid data command"));
@@ -186,7 +188,9 @@ fn pass2_command_data_def(
             }
             _ => {
                 dbg!(statement);
-                return Err(AssemblyError::program("invalid data command"));
+                return Err(AssemblyError::program(
+                    "invalid data command nothing matched",
+                ));
             }
         }
     }
