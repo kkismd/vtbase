@@ -51,6 +51,9 @@ K_F5            :=$15
 K_F6            :=$16
 K_F7            :=$17
 K_F8            :=$18
+S_SHIFT        :=$01
+S_CTRL         :=$02
+S_GRAPH        :=$04
 
 VRAM_NAME_TBL   :=$2000
 VRAM_ATTR_TBL   :=$23c0
@@ -75,9 +78,7 @@ OAM             :=$0200         ;  oam: .res 256        ; sprite OAM data to be 
                                 ;  .segment "BSS"
 nmt_update      :=$0300         ;  nmt_update: .res 256 ; nametable update entry buffer for PPU update
 palette         :=$0400         ;  palette:    .res 32  ; palette buffer for PPU update
-
-
-
+line_buf        :=$0420         ;  line_buf    .res 32  ; line input buffer (line contents at cursor Y)
 
 ;; zero page                    ;  .segment "ZEROPAGE"
 nmi_lock        :=$00           ;  nmi_lock:       .res 1 ; prevents NMI re-entry
@@ -100,7 +101,7 @@ offset_y        :=$0f
 buttons         :=$10           ;  button push state
 p_timer         :=$11           ;  player animation timer
 xsave           :=$12
-hex_l           :=$13
+ysave           :=$13
 hex_h           :=$14
 tmp1            :=$15
 tmp2            :=$16
@@ -110,8 +111,9 @@ keyin_bit       :=$21
 keycode_offset  :=$22
 keydown         :=$23
 keydown_prev    :=$24
-addrhi          :=$25
-addrlo          :=$26
+shift_state     :=$25
+addrhi          :=$26
+addrlo          :=$27
 
 nes_header                      ;  iNESヘッダ
         ?="NES",$1A             ;  "NES" Header
@@ -245,6 +247,7 @@ nmi                             ;  nmi:
         A=0                     ;      lda #0
         (nmt_update_len)=A      ;      sta nmt_update_len
 .scroll                         ;  @scroll:
+        !=sync_line_buffer
         A=(scroll_nmt)          ;      lda scroll_nmt
         A=A&%00000011           ;      and #%00000011 ; keep only lowest 2 bits to prevent error
         A=A|%10001000           ;      ora #%10001000
@@ -309,6 +312,40 @@ ppu_off                         ;  ppu_off:
         ;=NE,.1                 ;          bne :-
         #=!                     ;      rts
 
+sync_line_buffer
+        ;;; save addrhi,lo
+        A=(addrhi)
+        [=A
+        A=(addrlo)
+        [=A
+        ;;; set PPU I/O address
+        A=(scroll_y)
+        A=A+(cursor_y)
+        Y=A
+        X=0
+        !=ppu_address_tile
+        A=(PPU_STATUS)          ; reset latch
+        A=(addrhi)
+        (PPU_VRAM_ADDR2)=A
+        A=(addrlo)
+        (PPU_VRAM_ADDR2)=A
+        A=(PPU_VRAM_IO)         ; dummy read
+
+        ;;; read from ppu
+        X=0                     ;    LDX #$00
+.loop                           ;  CopyLoop:
+        A=(PPU_VRAM_IO)         ;    LDA $2007
+        (line_buf+X)=A          ;    STA $0400,X
+        X=+                     ;    INX
+        T=X-$20                 ;    CPX #$20
+        ;=NE,.loop              ;    BNE CopyLoop
+
+        ;;; restore addrhi,lo
+        A=]
+        (addrlo)=A
+        A=]
+        (addrhi)=A
+        #=!                     ;    RTS
 
 ; ppu_address_tile  calculate ppu address from X,Y
 ; IN
@@ -407,11 +444,9 @@ main                        ;     ; setup
     ;=CC,.1                 ;         bcc :-
     !=setup_background      ;     jsr setup_background
                             ;     ; center the cursor
-    A=2                     ;     lda #128
+    A=0                     ;     lda #128
     (cursor_x)=A            ;     sta cursor_x
-    A=2                     ;     lda #120
     (cursor_y)=A            ;     sta cursor_y
-    A=0
     (p_timer)=A
     (buttons)=A
     (keydown)=A
@@ -433,7 +468,7 @@ main                        ;     ; setup
     #=.draw                 ;         jmp @draw ; start trumps everything, don't check other buttons
 .2                          ;     :
 
-    !=move_cursor
+    !=handle_cross_key
     A=(gamepad)             ;     lda gamepad
     A=A&PAD_SELECT          ;     and #PAD_SELECT
     ;=EQ,.7                 ;     beq :+
@@ -450,6 +485,7 @@ main                        ;     ; setup
     !=push_a_btn                ;         jsr push_a
 .9                          ;     :
     !=read_keyboard
+    !=check_shift_state
     !=display_keyin_char
 
 .draw                       ;;@draw:
@@ -459,7 +495,7 @@ main                        ;     ; setup
                             ;     ; keep doing this forever!
     #=.loop                 ;     jmp @loop
 
-move_cursor
+handle_cross_key
     !=is_up_key_pressed
     ;=EQ,.check_down_key
     A=(buttons)             ;  check state
@@ -527,6 +563,53 @@ is_right_key_pressed
     A=A&PAD_R
     #=!
 
+check_shift_state
+    ; init state
+    A=0
+    (shift_state)=A
+
+.test_right_shift
+    A=(keyin_data)
+    A=A^$ff
+    A=A&$20
+    ;=Z,.test_left_shift
+        ; if shift key pressed
+        A=S_SHIFT
+        (shift_state)=A
+        #=.test_ctrl
+
+.test_left_shift
+    A=(keyin_data+7)
+    A=A^$ff
+    A=A&$10
+    ;=EQ,.test_ctrl
+        ; if shift key pressed
+        A=S_SHIFT
+        (shift_state)=A
+
+.test_ctrl
+    A=(keyin_data+7)
+    A=A^$ff
+    A=A&$08
+    ;=Z,.test_graph
+        ; if ctrl key pressed
+        A=(shift_state)
+        A=A|S_CTRL
+        (shift_state)=A
+
+.test_graph
+    ; test graph key
+    A=(keyin_data+7)
+    A=A^$ff
+    A=A&$20
+    ;=Z,.ret
+        ; if graph key pressed
+        A=(shift_state)
+        A=A|S_GRAPH
+        (shift_state)=A
+.ret
+    #=!
+
 display_keyin_char
     ; initialize keydown state for this cycle
     A=0
@@ -568,6 +651,7 @@ disp_keyin_data
     #=!
 .next
     (keycode_offset)=+
+    C=0
     (keyin_bit)=<
     ;=CC,.loop              ; bit8 has done.
     #=!
@@ -578,6 +662,28 @@ disp_keyin_data
 ; USE A, X
 ; 
 keyboard_test
+    A=(shift_state)
+    ;=Z,.not_shift_key
+
+    ; keyin_offset == 7 && keyin_bit == $08 | $10 | $20
+    ;              or 0 &&              $20
+    A=(keyin_offset)
+    T=A-7
+    ;=NE,.test_offset0
+    A=(keyin_bit)
+    ;=A=$08 #=.is_shift_key
+    ;=A=$10 #=.is_shift_key
+    ;=A=$20 #=.is_shift_key
+.test_offset0
+    A=(keyin_offset)
+    ;=A\0 #=.not_shift_key
+    A=(keyin_bit)
+    ;=A\$20 #=.not_shift_key
+.is_shift_key
+    A=A&0
+    #=!
+
+.not_shift_key
     ; read key data
     X=(keyin_offset)
     A=(keyin_data+X)
@@ -603,20 +709,32 @@ scan_code
 ;   keycode_offset, cursor_x, cursor_y
 ; USE A, X, Y
 put_char
+    ; change table with shift state
+    A=(shift_state)
+    A=A&S_SHIFT
+    ;=Z,.non_shift
+        ; if shift on
+        X=(keycode_offset)
+        A=(keycode_table_shifted+X)
+        ;=A<$20 #=control_char
+        [=A                     ; save char code
+        #=.cont
+
+.non_shift
     X=(keycode_offset)
     A=(keycode_table+X)
     ;=A<$20 #=control_char
     [=A                     ; save char code
 
+.cont
     A=(cursor_y)
     A=A+(scroll_y)
     Y=A
     A=]                     ; restore char code
     X=(cursor_x)
-
-hoge
     !=ppu_update_tile
-
+    ; fall through
+advance_cursor
     ; xが右端でなければ1つ右に進める
     A=(cursor_x)
     ;=A<31 (cursor_x)=+ #=!
@@ -629,29 +747,69 @@ hoge
     ;=Y>31 (cursor_y)=A
     #=!
 
-; Control Key pressed.
+; Control Keys pressed. (not CTR key)
 control_char
-    ;=A=K_UP    #=push_u
-    ;=A=K_DOWN  #=push_d
-    ;=A=K_LEFT  #=push_l
-    ;=A=K_RIGHT #=push_r
-    ;=A=K_CLR   #=push_select
-    ;=A=K_KANA  #=push_start
+    ;=A=K_UP        #=push_u
+    ;=A=K_DOWN      #=push_d
+    ;=A=K_LEFT      #=push_l
+    ;=A=K_RIGHT     #=push_r
+    ;=A=K_CLR       #=push_select
+    ;=A=K_KANA      #=push_start
+    ;=A=K_RETURN    #=push_return
+    #=!
+
+;; return key pressed
+push_return
+    !=carriage_return
+    #=read_eval_print
+
+read_eval_print
+    X=0
+.loop
+        A=(line_buf+X)
+        !=cout
+        X=+
+    ;=X<$20 #=.loop
+    !=carriage_return
 
 
-   ; !=hexchar               ; scan code to digit
-   ; [=A                     ; save char code
+ok
+    A='O'
+    !=cout
+    A='k'
+    !=cout
+    #=carriage_return
 
+    #=!
+
+; put char to screen
+; IN   A
+; USE  X,Y
+cout
+    (xsave)=X
+    (ysave)=Y
+    [=A                     ; save char code
+    
     A=(cursor_y)
     A=A+(scroll_y)
     Y=A
-
-   ; A=]                     ; restore char code
-   A=$7e
-
+    A=]                     ; restore char code
     X=(cursor_x)
-    
-    #=hoge
+    !=ppu_update_tile
+    !=advance_cursor
+
+    Y=(ysave)
+    X=(xsave)
+    #=!
+
+;; do carriage return
+carriage_return
+    (cursor_y)=+            ;      inc cursor_y
+    A=(cursor_y)            ;      lda cursor_y
+    ;=A>30 A=0 (cursor_y)=A ;  wrap over L29
+    A=0
+    (cursor_x)=A
+    #=!
 
 ;-------------------------------------------------------------------------------
 
@@ -732,18 +890,21 @@ push_d                      ;  push_d:
     (cursor_y)=+            ;      inc cursor_y
     A=(cursor_y)            ;      lda cursor_y
     ;=A>30 A=0 (cursor_y)=A ;  wrap over L29
-.1                          ;      :
     #=!                     ;      rts
 
 push_l                      ;  push_l:
+    (cursor_x)=-            ;      dec cursor_x
     A=(cursor_x)
-    ;=A>1 (cursor_x)=-      ;      dec cursor_x
+    ;=PL,.1
+    A=31
+    (cursor_x)=A
 .1
     #=!                     ;      rts
 
 push_r                      ;  push_r:
+    (cursor_x)=+
     A=(cursor_x)
-    ;=A<30 (cursor_x)=+
+    ;=A>32 A=0 (cursor_x)=A
 .1
     #=!                     ;      rts
 
@@ -849,20 +1010,10 @@ init_nametable
 .loop2                          ;      :
         X=32                    ;          ldx #32 ; 32 columns
 .loop1                          ;          :
-        X=-                     ;              dex
-        ;=EQ,.nextline
-        ; put space
         A=$20                   ;
         (PPU_VRAM_IO)=A         ;              sta $2007
+        X=-                     ;              dex
         ;=NE,.loop1             ;              bne :-
-.nextline
-        A=Y A=A+1 A=>
-        (temp)=A
-        A=$40
-        A=A-(temp)
-        ;=A>$3a A=A+$7
-        (PPU_VRAM_IO)=A         ;              sta $2007
-
         Y=-                     ;          dey
         ;=NE,.loop2             ;          bne :--
 
@@ -892,12 +1043,23 @@ keycode_table
         ; CLR ↑   →  ←   ↓    SPC  DEL INS
         ?=$18,$01,"[]",$02,$03,$5C,$04
         ?=$17,"@;:_/-^"
-        ?=$16,"OLK,.P0"
-        ?=$15,"IUJMN98"
-        ?=$14,"YGHBV76"
-        ?=$13,"TRDFC54"
-        ?=$12,"WSAXZE3"
-        ?=$11,$05,"Q",$06,$07,$08,"12"
+        ?=$16,"olk,.p0"
+        ?=$15,"iujmn98"
+        ?=$14,"yghbv76"
+        ?=$13,"trdfc54"
+        ?=$12,"wsaxze3"
+        ?=$11,$05,"q",$06,$07,$08,"12"
+        ?=$09,$0A,$0B,$0C,$0D,$20,$0E,$0F
+
+keycode_table_shifted
+        ?=$18,$01,"[]",$02,$03,$5C,$04
+        ?=$17,"@+*_?=^"
+        ?=$16,"OLK<>P0"
+        ?=$15,"IUJMN)("
+        ?=$14,"YGHBV'&"
+        ?=$13,"TRDFC%$"
+        ?=$12,"WSAXZE#"
+        ?=$11,$05,"Q",$06,$07,$08,"!",$22
         ?=$09,$0A,$0B,$0C,$0D,$20,$0E,$0F
 
         $=$00,$fffa-*       ;;.segment "VECINFO"                       
