@@ -767,6 +767,7 @@ read_eval_print
     X=0                             ; data stack pointer
     Y=0                             ; program text index
     !=eval
+    !=print_stack
     !=carriage_return
 
 ok
@@ -843,6 +844,7 @@ exec_word
     (ysave)=Y
     ;=A='+' !=plus
     Y=(ysave)
+    Y=+
     #=!
 
 ; skip space characters on program text
@@ -854,10 +856,39 @@ skip_blank
         ;=A=$20 Y=+ #=skip_blank
         #=!
 
+; print stack contents
+;   S[3]: 0001 0002 0003
+print_stack
+    A='S' !=cout
+    A='[' !=cout
+    A=X                 ; A <- stack ptr
+    ;=Z,.skip           ; if ptr is zero?
+    A=A^$ff             ;   no: convert to positive using 2s compliment
+    A=A+1
+.skip
+    A=>                 ; A=A/2 because stack is 2bytes width
+    ;=A>$0A A=A+7       ; val 10 to char 'A'
+    A=A+$30             ; val to ascii
+    !=cout
+    A=']' !=cout
+    A=':' !=cout
+
+.print_stack_value
+    A=$20 !=cout
+    !=dup
+    A=(1+X)
+    (0+X)=A
+    !=put_hex           ; print hi byte of TOS
+    !=dup
+    !=put_hex
+
+    ;; next stack entry
+    X=++
+    ;=X>1 #=.print_stack_value
+    #=!
 
 ; put char to screen
 ; IN   A
-; USE  X,Y
 cout
     (xsave)=X
     (ysave)=Y
@@ -874,6 +905,17 @@ cout
     Y=(ysave)
     X=(xsave)
     #=!
+
+; 1byte値をhex形式で出力
+;   ( b --  )
+put_hex
+        !=numhex            ; byte値を2桁の文字に変換
+        A=(0+X)             ; 1桁目を取り出す
+        !=cout              ; 出力
+        A=(1+X)             ; 2桁目を取り出す
+        !=cout              ; 出力
+        X=++                ; スタックを消費
+        #=!
 
 ;; do carriage return
 carriage_return
@@ -947,6 +989,13 @@ swap    A=(0+X)                 ;; SWAP:   LDA  0,X        ; Swap the top two da
         (3+X)=A                 ;;         STA  3,X
         (1+X)=Y                 ;;         STY  1,X
         #=!                     ;;         RTS
+
+dup     X=--                    ;; DUP:    DEX2            ; This could be shortened by a few bytes by using PUSH,
+        A=(2+X)                 ;;         LDA  2,X        ; but it's used often enough that I think it's worth
+        (0+X)=A                 ;;         STA  0,X        ; doing this way.                       ( n1 -- n1 n1 )
+        A=(3+X)                 ;;         LDA  3,X        ; It just DUPlicates the top stack cell.
+        (1+X)=A                 ;;         STA  1,X
+        #=!                     ;;  durt$: RTS
 ;-------------------------------------------------------------------------------
 
 read_keyboard               ;  ReadKeyboard:
@@ -993,17 +1042,19 @@ kbd_wait2                       ;  Wait2:
         #=!                     ;          rts
 
 
-;; Aの値をhex2文字に変換する
+; 1byteの値をhex2文字に変換する
+;  ( b  --  h+l )
 numhex
-        (tmp1)=A               ;  Aの値を保存
-        A=>>>>                 ;  上位4bitを下位にずらす
-        !=hexchar              ;  文字に変換
-        (tmp2)=A               ;  1文字目を一時保存
-        A=(tmp1)               ;  もう一度Aの値を取り出す   
-        A=A&$0f                ;  上位4bitをマスクする
-        !=hexchar              ;  文字に変換
-        Y=A                    ;  2文字目をYに保存
-        A=(tmp2)               ;  1文字目をAに戻す
+        A=(0+X)                 ; 値を取り出す
+        A=A&$0f                 ; 上位4bitをマスクする
+        !=hexchar               ; 文字に変換
+        (1+X)=A                 ; stackのLSBに保存
+
+        A=(0+X)                 ; もう一度値を取り出す
+        A=>>>>                  ; 上位4bitを下位にずらす
+        !=hexchar               ; 文字に変換
+        (0+X)=A                 ; stackのMSBに保存
+
         #=!                    ;  終わり
 
 ;; Aレジスタ下位4bitの値を0-Fの文字に変換する
