@@ -791,8 +791,8 @@ ok
 ;     X -- data stack pointer
 eval
     !=skip_blank
-    !=execute
     ;=Y>$1f #=.loop_end                     ; check if line end
+    !=execute
     #=eval  ; goto top
 .loop_end
     #=!
@@ -840,10 +840,28 @@ push_digit
 ;     A - first letter of word
 ;     Y - current cursor of line buffer
 ;     X - data stack pointer
+;
+;   at first, check if stack has more 2 values
+;
+;   4  5   2  3   0  1    | Bottom (no value)
+;   fa,fb  fc,fd  fe,ff   0
+;       <- OK NG ->
+;
 exec_word
+    ;=X>$fd #=.err           ; check stack depth
+
     (ysave)=Y
-    ;=A='+' !=plus
+    ;=A='+' !=plus #=.ok
+    ;=A='-' !=minus #=.ok
+    ;=A='*' !=star #=.ok
+.ok
     Y=(ysave)
+    Y=+
+    #=!
+.err
+    A='?'
+    !=cout
+    !=carriage_return
     Y=+
     #=!
 
@@ -852,6 +870,7 @@ exec_word
 ;   USE  A
 ;   OUT  Y new index pos
 skip_blank
+        ;=Y>$1f #=!
         A=(line_buf+Y)
         ;=A=$20 Y=+ #=skip_blank
         #=!
@@ -978,6 +997,17 @@ plus                            ;; PLUS:   CLC
         (3+X)=A                 ;;         STA  3,X
         X=++                    ;;         POP
         #=!                     ;;         RTS
+
+;; subtract                     ( n1 n2  --  n1-n2 )
+minus   C=1                     ;; MINUS:  SEC             
+        A=(2+X)                 ;;         LDA  2,X
+        A=AC-(0+X)              ;;         SBC  0,X
+        (2+X)=A                 ;;         STA  2,X
+        A=(3+X)                 ;;         LDA  3,X
+        A=AC-(1+X)              ;;         SBC  1,X
+        (3+X)=A                 ;;         STA  3,X
+        X=++                    ;;         POP
+        #=!                     ;;  mi1$:  RTS
 
 swap    A=(0+X)                 ;; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
         Y=(2+X)                 ;;         LDY  2,X
