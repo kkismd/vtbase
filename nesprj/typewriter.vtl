@@ -626,7 +626,7 @@ display_keyin_char
       A=(keyin_offset)
       ;=A>9 #=.end
       A=<<<
-      (keycode_offset)=A
+      (keycode_offset)=A        ; keycode_offset = keyin_offset * 8
       A=1
       (keyin_bit)=A
       #=.loop
@@ -639,12 +639,11 @@ display_keyin_char
 
 disp_keyin_data
 .loop
-    !=keyboard_test
-    ;=EQ,.next
-    A=(keydown_prev)        ; check keydown state in previous cycle
-    ;=NE,.keydown           ; if keydown off
-    A=(keydown)             ; check keydown state in this cycle
-    ;=NE,.keydown           ; if keydown off
+    !=keyboard_test         ; Is the current key being pressed?
+    ;=EQ,.next              ;   If not pressed, go to the next loop
+    !=scan_code             ; If the current keycode is different
+    T=A-(keydown_prev)      ;   from the previously pressed keycode
+    ;=EQ,.keydown           ;   skip displaying
     !=put_char              ; then call put_char
 .keydown
     !=scan_code
@@ -653,7 +652,7 @@ disp_keyin_data
 .next
     (keycode_offset)=+
     C=0
-    (keyin_bit)=<
+    (keyin_bit)=<           ; shift left testing bit
     ;=CC,.loop              ; bit8 has done.
     #=!
 
@@ -665,7 +664,7 @@ disp_keyin_data
 keyboard_test
     A=(shift_state)
     ;=Z,.not_shift_key
-
+    ; ignore shift keys
     ; keyin_offset == 7 && keyin_bit == $08 | $10 | $20
     ;              or 0 &&              $20
     A=(keyin_offset)
@@ -854,6 +853,8 @@ exec_word
     ;=A='+' !=plus #=.ok
     ;=A='-' !=minus #=.ok
     ;=A='*' !=star #=.ok
+    ;=A='/' !=slash #=.ok
+    ;=A='%' !=percent #=.ok
 .ok
     Y=(ysave)
     Y=+
@@ -959,73 +960,111 @@ push_zero
     #=!
 
 ;; multiply                     ( n1 n2 -- n1*n2 )
-star    A=Y [=A                 ;; STAR:   PHY
-        A=0 (N)=A               ;;         STZ  N
-        Y=0                     ;;         LDY  #0
-.1      >=(3+X)                 ;; sta1$:     LSR  3,X
-        )=(2+X)                 ;;            ROR  2,X
-        ;=<,.2                  ;;            BCC  sta2$
-        C=0                     ;;               CLC
-        A=(N)                   ;;               LDA  N
-        A=A+(0+X)               ;;               ADC  0,X
-        (N)=A                   ;;               STA  N
-        A=Y                     ;;               TYA
-        A=AC+(1+X)              ;;            ADC  1,X
-        Y=A                     ;;            TAY
-.2      <=(0+X)                 ;; sta2$:     ASL  0,X
-        (=(1+X)                 ;;            ROL  1,X
-                                ;; 
-        A=(2+X)                 ;;            LDA  2,X
-        A=A|(3+X)               ;;            ORA  3,X
-        ;=\,.1                  ;;         BNE  sta1$
-                                ;; 
-        A=(N)                   ;;         LDA  N
-        (2+X)=A                 ;;         STA  2,X
-        (3+X)=Y                 ;;         STY  3,X
-        X=++                    ;;         POP
-        A=]                     ;;         PLY
+star    A=Y [=A                 ; STAR:   PHY
+        A=0 (N)=A               ;         STZ  N
+        Y=0                     ;         LDY  #0
+.1      >=(3+X)                 ; sta1$:     LSR  3,X
+        )=(2+X)                 ;            ROR  2,X
+        ;=<,.2                  ;            BCC  sta2$
+        C=0                     ;               CLC
+        A=(N)                   ;               LDA  N
+        A=A+(0+X)               ;               ADC  0,X
+        (N)=A                   ;               STA  N
+        A=Y                     ;               TYA
+        A=AC+(1+X)              ;            ADC  1,X
+        Y=A                     ;            TAY
+.2      <=(0+X)                 ; sta2$:     ASL  0,X
+        (=(1+X)                 ;            ROL  1,X
+                                ; 
+        A=(2+X)                 ;            LDA  2,X
+        A=A|(3+X)               ;            ORA  3,X
+        ;=\,.1                  ;         BNE  sta1$
+                                ; 
+        A=(N)                   ;         LDA  N
+        (2+X)=A                 ;         STA  2,X
+        (3+X)=Y                 ;         STY  3,X
+        X=++                    ;         POP
+        A=]                     ;         PLY
         Y=A
-        #=!                     ;;         RTS
+        #=!                     ;         RTS
 
 ;; add                          ( n1 n2  --  n1+n2 )
-plus                            ;; PLUS:   CLC             
-        A=(0+X)                 ;;         LDA  0,X
-        A=A+(2+X)               ;;         ADC  2,X
-        (2+X)=A                 ;;         STA  2,X
-        A=(1+X)                 ;;         LDA  1,X
-        A=AC+(3+X)              ;;         ADC  3,X
-        (3+X)=A                 ;;         STA  3,X
-        X=++                    ;;         POP
-        #=!                     ;;         RTS
+plus                            ; PLUS:   CLC             
+        A=(0+X)                 ;         LDA  0,X
+        A=A+(2+X)               ;         ADC  2,X
+        (2+X)=A                 ;         STA  2,X
+        A=(1+X)                 ;         LDA  1,X
+        A=AC+(3+X)              ;         ADC  3,X
+        (3+X)=A                 ;         STA  3,X
+        X=++                    ;         POP
+        #=!                     ;         RTS
 
 ;; subtract                     ( n1 n2  --  n1-n2 )
-minus   C=1                     ;; MINUS:  SEC             
-        A=(2+X)                 ;;         LDA  2,X
-        A=AC-(0+X)              ;;         SBC  0,X
-        (2+X)=A                 ;;         STA  2,X
-        A=(3+X)                 ;;         LDA  3,X
-        A=AC-(1+X)              ;;         SBC  1,X
-        (3+X)=A                 ;;         STA  3,X
-        X=++                    ;;         POP
-        #=!                     ;;  mi1$:  RTS
+minus   C=1                     ; MINUS:  SEC             
+        A=(2+X)                 ;         LDA  2,X
+        A=AC-(0+X)              ;         SBC  0,X
+        (2+X)=A                 ;         STA  2,X
+        A=(3+X)                 ;         LDA  3,X
+        A=AC-(1+X)              ;         SBC  1,X
+        (3+X)=A                 ;         STA  3,X
+        X=++                    ;         POP
+        #=!                     ;  mi1$:  RTS
 
-swap    A=(0+X)                 ;; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
-        Y=(2+X)                 ;;         LDY  2,X
-        (2+X)=A                 ;;         STA  2,X
-        (0+X)=Y                 ;;         STY  0,X
+swap    A=(0+X)                 ; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
+        Y=(2+X)                 ;         LDY  2,X
+        (2+X)=A                 ;         STA  2,X
+        (0+X)=Y                 ;         STY  0,X
 
-        A=(1+X)                 ;;         LDA  1,X
-        Y=(3+X)                 ;;         LDY  3,X
-        (3+X)=A                 ;;         STA  3,X
-        (1+X)=Y                 ;;         STY  1,X
-        #=!                     ;;         RTS
+        A=(1+X)                 ;         LDA  1,X
+        Y=(3+X)                 ;         LDY  3,X
+        (3+X)=A                 ;         STA  3,X
+        (1+X)=Y                 ;         STY  1,X
+        #=!                     ;         RTS
 
-dup     X=--                    ;; DUP:    DEX2            ; This could be shortened by a few bytes by using PUSH,
-        A=(2+X)                 ;;         LDA  2,X        ; but it's used often enough that I think it's worth
-        (0+X)=A                 ;;         STA  0,X        ; doing this way.                       ( n1 -- n1 n1 )
-        A=(3+X)                 ;;         LDA  3,X        ; It just DUPlicates the top stack cell.
-        (1+X)=A                 ;;         STA  1,X
-        #=!                     ;;  durt$: RTS
+dup     X=--                    ; DUP:    DEX2            ; This could be shortened by a few bytes by using PUSH,
+        A=(2+X)                 ;         LDA  2,X        ; but it's used often enough that I think it's worth
+        (0+X)=A                 ;         STA  0,X        ; doing this way.                       ( n1 -- n1 n1 )
+        A=(3+X)                 ;         LDA  3,X        ; It just DUPlicates the top stack cell.
+        (1+X)=A                 ;         STA  1,X
+        #=!                     ;  durt$: RTS
+
+;; division
+slash               ; '/'
+        !=divmod
+        X=++
+        #=!
+percent             ; '%'
+        !=divmod
+        !=swap
+        X=++
+        #=!
+divmod                          ; copy and modified from http://www.6502.org/source/interpreters/vtl02.htm
+        A=0                     ; lda  #0		
+        (N)=A                   ; sta  remn	; {%} = 0
+        (N+1)=A                 ; sta  remn+1	
+        A=16                    ; lda  #16	
+        (N+2)=A                 ; sta  under	; {_} = loop counter
+.1      (2+X)=<                 ; asl  0,x	; var[x] is gradually replaced
+        (3+X)=(                 ; rol  1,x	;   with the quotient
+        (N)=(                   ; rol  remn	; {%} is gradually replaced
+        (N+X)=(                 ; rol  remn+1	;   with the remainder
+        A=(N)                   ; lda  remn	
+        T=A-(0+X)               ; cmp  2,x	
+        A=(N+1)                 ; lda  remn+1	; partial remainder >= var[x+2]?
+        A=AC-(1+X)              ; sbc  3,x	
+        ;=CC,.2                 ; bcc  div2	
+        (N+1)=A                 ; sta  remn+1	;   yes: update the partial
+        A=(N)                   ; lda  remn	;     remainder and set the
+        A=AC-(0+X)              ; sbc  2,x	;     low bit in the partial
+        (N)=A                   ; sta  remn	;     quotient
+        (2+X)=+                 ; inc  0,x	
+.2      (N+2)=-                 ; dec  under	
+        ;=NE,.1                 ; bne  div1	; loop 16 times
+        A=(N)
+        (0+X)=A
+        A=(N+1)
+        (1+X)=A
+        #=!                     ; rts  		
 ;-------------------------------------------------------------------------------
 
 read_keyboard               ;  ReadKeyboard:
