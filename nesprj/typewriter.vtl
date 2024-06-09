@@ -64,6 +64,8 @@ KBD_CTRL        :=$4016
 KBD_IO          :=$4017
 APU_FRAME_CNT   :=$4017
 
+CMD_ERASE_LINE  :=$f0
+
                                 ;  https://github.com/bbbradsmith/NES-ca65-example
                                 ;  example.s
                                 ;  Brad Smith (rainwarrior), 4/06/2014
@@ -79,6 +81,7 @@ OAM             :=$0200         ;  oam: .res 256        ; sprite OAM data to be 
 nmt_update      :=$0300         ;  nmt_update: .res 256 ; nametable update entry buffer for PPU update
 palette         :=$0400         ;  palette:    .res 32  ; palette buffer for PPU update
 line_buf        :=$0420         ;  line_buf    .res 32  ; line input buffer (line contents at cursor Y)
+random          :=$0440         ;  4 bytes
 
 ;; zero page                    ;  .segment "ZEROPAGE"
 nmi_lock        :=$00           ;  nmi_lock:       .res 1 ; prevents NMI re-entry
@@ -241,6 +244,14 @@ nmi                             ;  nmi:
         (PPU_VRAM_ADDR2)=A      ;          sta $2006
         X=+                     ;          inx
         A=(nmt_update+X)        ;          lda nmt_update, X
+        ;=A<$f0 #=.normal_command
+            A=$20
+            Y=30
+.loop
+                (PPU_VRAM_IO)=A
+                Y=-
+            ;=NE,.loop
+.normal_command
         (PPU_VRAM_IO)=A         ;          sta $2007
         X=+                     ;          inx
         T=X-(nmt_update_len)    ;          cpx nmt_update_len
@@ -357,29 +368,34 @@ sync_line_buffer
 ; OUT
 ;   addrhi -- ppu address hi
 ;   addrlo -- ppu address lo
+;
+;   scroll_nmt    0   2
+;   -----------|----------
+;    Y <  30   |  T   B     (T = Top -> $2000)
+;      >= 30   |  B   T     (B = Bottom -> $2800)
+;
 ppu_address_tile
-        A=(scroll_nmt)              ; check scroll_area
-        ;=A=0 #=.top                ; if A == 2
-.bottom
-        A=$28                       ; base addr = $28
-        (addrhi)=A
-        #=.cont
-.top
+        ;=Y>30 #=.else
+.then
+        A=(scroll_nmt)
+        ;=A=0 A=$20
+        ;=A=2 A=$28
+        #=.endif
+.else
         A=Y
-        ; if A < 30 then base addr = $20
-        ;=A<30 A=$20 (addrhi)=A #=.cont
-            ; else y -= 30 and base addr = $28
-            A=A-30
-            Y=A
-            A=$28
-            (addrhi)=A
-.cont
+        A=A-30
+        Y=A
+        A=(scroll_nmt)
+        ;=A=0 A=$28
+        ;=A=2 A=$20
+.endif
+        (addrhi)=A
         A=Y
         A=>>>
         A=A+(addrhi)
         (addrhi)=A
-        A=Y                     ;  tya
-        A=<<<<<                 ;  asl *5
+        A=Y
+        A=<<<<<
         (addrlo)=A
         A=X
         A=A|(addrlo)
@@ -840,24 +856,22 @@ push_digit
 ;     Y - current cursor of line buffer
 ;     X - data stack pointer
 ;
-;   at first, check if stack has more 2 values
-;
-;   4  5   2  3   0  1    | Bottom (no value)
-;   fa,fb  fc,fd  fe,ff   0
-;       <- OK NG ->
 ;
 exec_word
-    ;=X>$fd #=.err           ; check stack depth
+    (ysave)=Y                   ; save text pointer
+    ;=A='r' !=rand #=.ok
 
-    (ysave)=Y
+    ;=X>$fd #=.err              ; check if stack has more 2 values
+                                ; fa,fb  fc,fd  fe,ff  | 0 (bottom)
+                                ;     <- OK NG ->
     ;=A='+' !=plus #=.ok
     ;=A='-' !=minus #=.ok
     ;=A='*' !=star #=.ok
     ;=A='/' !=slash #=.ok
     ;=A='%' !=percent #=.ok
 .ok
-    Y=(ysave)
-    Y=+
+    Y=(ysave)                   ; restore text pointer
+    Y=+                         ;  and advance
     #=!
 .err
     A='?'
@@ -892,6 +906,7 @@ print_stack
     !=cout
     A=']' !=cout
     A=':' !=cout
+    ;=X=0 #=!           ; stop if empty
 
 .print_stack_value
     A=$20 !=cout
@@ -937,14 +952,30 @@ put_hex
         X=++                ; スタックを消費
         #=!
 
-;; do carriage return
+; do carriage return and scroll up
 carriage_return
-    (cursor_y)=+            ;      inc cursor_y
-    A=(cursor_y)            ;      lda cursor_y
-    ;=A>30 A=0 (cursor_y)=A ;  wrap over L29
-    A=0
-    (cursor_x)=A
-    #=!
+        A=0
+        (cursor_x)=A            ; move ←
+        (cursor_y)=+            ; move ↓
+        A=(cursor_y)
+        ;=A<30 #=!             ; end if within screen
+        A=29
+        (cursor_y)=A            ; adjust Y
+        !=push_start            ; roll up
+
+        (xsave)=X               ; save x,y
+        (ysave)=Y
+
+        A=(scroll_y)
+        A=A+(cursor_y)
+        Y=A
+        X=0
+        A=CMD_ERASE_LINE        ; set EraseLine command
+        !=ppu_update_tile
+
+        X=(xsave)
+        Y=(ysave)
+        #=!
 
 ;-------------------------------------------------------------------------------
 ; stack manipulation routines
@@ -1065,6 +1096,41 @@ divmod                          ; copy and modified from http://www.6502.org/sou
         A=(N+1)
         (1+X)=A
         #=!                     ; rts  		
+
+rand
+        A=(random)              ; ALL 0 -> initial state
+        A=A|(random+1)
+        ;=NE,.1
+            A=(nmi_count)       ; initialize seed
+            (random)=A          ;   from nmi counter
+            A=(cursor_x)        ;   and cursor (x,y)
+            A=<<<<
+            A=A|(cursor_y)
+            (random+1)=A
+.1
+        !=galois16
+        X=--
+        (0+X)=A
+        A=(random+1)
+        (1+X)=A
+        #=!
+
+;;; Code from https://github.com/bbbradsmith/prng_6502
+galois16                        ; galois16:
+        Y=8                     ;     ldy #8
+        A=(random+0)            ;     lda random+0
+.1                              ; :
+        A=<                     ;     asl        ; shift the register
+        (random+1)=(            ;     rol random+1
+        ;=CC,.2                 ;     bcc :+
+        A=A^$39                 ;     eor #$39   ; apply XOR feedback whenever a 1 bit is shifted out
+.2                              ; :
+        Y=-                     ;     dey
+        ;=NE,.1                 ;     bne :--
+        (random+0)=A            ;     sta random+0
+        T=A-0                   ;     cmp #0     ; reload flags
+        #=!                     ;     rts
+
 ;-------------------------------------------------------------------------------
 
 read_keyboard               ;  ReadKeyboard:
@@ -1165,29 +1231,18 @@ push_r                      ;  push_r:
     #=!                     ;      rts
 
 push_select
-    A=(scroll_nmt)          ; if scroll_nmt == 2
-    ;=A=0 #=.1
-    A=0                     ; scroll_nmt = 0, scroll_y = 29
-    (scroll_nmt)=A
-    A=29
-    (scroll_y)=A
-    #=!
-.1
-    A=(scroll_y)            ; if scroll_y > 0
-    ;=A>1 (scroll_y)=-      ; scroll_y--
     #=!
 
-push_start
-    A=(scroll_nmt)          ; if scroll_nmt == 2 then return
-    ;=A=2 #=!
-    A=(scroll_y)            ; if scroll_y < 29 then scroll_y++
-    ;=A<29 (scroll_y)=+ #=!
-    A=2                     ; else scroll_nmt = 2, scroll_y = 0
-    (scroll_nmt)=A
+push_start                  ;  push_start:
+    (scroll_y)=+            ;      inc scroll_y
+    A=(scroll_y)            ;      lda scroll_y
+    ;=A<30 #=!
     A=0
     (scroll_y)=A
+    A=(scroll_nmt)        ;  ; toggle the bit of nametable select
+    A=A^$02
+    (scroll_nmt)=A
     #=!
-
 
 push_b                      ;  push_b:
     A=(cursor_x)            ;      lda cursor_x
