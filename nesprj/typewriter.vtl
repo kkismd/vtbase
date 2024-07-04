@@ -81,7 +81,10 @@ OAM             :=$0200         ;  oam: .res 256        ; sprite OAM data to be 
 nmt_update      :=$0300         ;  nmt_update: .res 256 ; nametable update entry buffer for PPU update
 palette         :=$0400         ;  palette:    .res 32  ; palette buffer for PPU update
 line_buf        :=$0420         ;  line_buf    .res 32  ; line input buffer (line contents at cursor Y)
-random          :=$0440         ;  4 bytes
+token           :=$0440         ;  token len   .res 1
+token_s         :=$0441         ;  token buf   .res 31
+random          :=$0460         ;  4 bytes random seed
+ptr             :=$0464
 
 ;; zero page                    ;  .segment "ZEROPAGE"
 nmi_lock        :=$00           ;  nmi_lock:       .res 1 ; prevents NMI re-entry
@@ -124,9 +127,9 @@ nes_header                      ;  iNESヘッダ
         ?=$02                   ;   PRG-BANKS
         ?=$01                   ;   CHR-BANKS
         ?=$00                   ;   vertical Mirror
-        ?=$00                   ;   
-        ?=$00,$00,$00,$00       ;   
-        ?=$00,$00,$00,$00       ;   
+        ?=$00                   ;
+        ?=$00,$00,$00,$00       ;
+        ?=$00,$00,$00,$00       ;
 
         *=$8000                 ;  .segment "STARTUP"
 
@@ -305,7 +308,7 @@ ppu_update                      ;  ppu_update:
         A=(nmi_ready)           ;          lda nmi_ready
         ;=NE,.1                 ;          bne :-
         #=!                     ;      rts
-                                ;  
+                                ;
                                 ;  ; ppu_skip: waits until next NMI, does not update PPU
 ppu_skip                        ;  ppu_skip:
         A=(nmi_count)           ;      lda nmi_count
@@ -313,8 +316,8 @@ ppu_skip                        ;  ppu_skip:
         T=A-(nmi_count)         ;          cmp nmi_count
         ;=EQ,.1                 ;          beq :-
         #=!                     ;      rts
-                                ;  
-                                ;  ; ppu_off: waits until next NMI, turns rendering off 
+                                ;
+                                ;  ; ppu_off: waits until next NMI, turns rendering off
                                 ;    (now safe to write PPU directly via $2007)
 ppu_off                         ;  ppu_off:
         A=2                     ;      lda #2
@@ -451,7 +454,7 @@ gamepad_poll                ;  gamepad_poll:
     (gamepad)=A             ;      sta gamepad
     #=!                     ;      rts
 
-main                        ;     ; setup 
+main                        ;     ; setup
     X=0                     ;     ldx #0
 .1                          ;     :
     A=(example_palette+X)   ;         lda example_palette, X
@@ -576,56 +579,56 @@ is_left_key_pressed
     #=!
 
 is_right_key_pressed
-    A=(gamepad)
-    A=A&PAD_R
-    #=!
+        A=(gamepad)
+        A=A&PAD_R
+        #=!
 
 check_shift_state
-    ; init state
-    A=0
-    (shift_state)=A
+        ; init state
+        A=0
+        (shift_state)=A
 
 .test_right_shift
-    A=(keyin_data)
-    A=A^$ff
-    A=A&$20
-    ;=Z,.test_left_shift
-        ; if shift key pressed
-        A=S_SHIFT
-        (shift_state)=A
-        #=.test_ctrl
+        A=(keyin_data)
+        A=A^$ff
+        A=A&$20
+        ;=Z,.test_left_shift
+            ; if shift key pressed
+            A=S_SHIFT
+            (shift_state)=A
+            #=.test_ctrl
 
 .test_left_shift
-    A=(keyin_data+7)
-    A=A^$ff
-    A=A&$10
-    ;=EQ,.test_ctrl
-        ; if shift key pressed
-        A=S_SHIFT
-        (shift_state)=A
+        A=(keyin_data+7)
+        A=A^$ff
+        A=A&$10
+        ;=EQ,.test_ctrl
+            ; if shift key pressed
+            A=S_SHIFT
+            (shift_state)=A
 
 .test_ctrl
-    A=(keyin_data+7)
-    A=A^$ff
-    A=A&$08
-    ;=Z,.test_graph
-        ; if ctrl key pressed
-        A=(shift_state)
-        A=A|S_CTRL
-        (shift_state)=A
+        A=(keyin_data+7)
+        A=A^$ff
+        A=A&$08
+        ;=Z,.test_graph
+            ; if ctrl key pressed
+            A=(shift_state)
+            A=A|S_CTRL
+            (shift_state)=A
 
 .test_graph
-    ; test graph key
-    A=(keyin_data+7)
-    A=A^$ff
-    A=A&$20
-    ;=Z,.ret
-        ; if graph key pressed
-        A=(shift_state)
-        A=A|S_GRAPH
-        (shift_state)=A
+        ; test graph key
+        A=(keyin_data+7)
+        A=A^$ff
+        A=A&$20
+        ;=Z,.ret
+            ; if graph key pressed
+            A=(shift_state)
+            A=A|S_GRAPH
+            (shift_state)=A
 .ret
-    #=!
+        #=!
 
 display_keyin_char
     ; initialize keydown state for this cycle
@@ -676,7 +679,7 @@ disp_keyin_data
 ; IN
 ;   keyin_offset, keyin_bit
 ; USE A, X
-; 
+;
 keyboard_test
     A=(shift_state)
     ;=Z,.not_shift_key
@@ -775,14 +778,11 @@ control_char
 
 ;; return key pressed
 push_return
-    !=carriage_return
-    #=read_eval_print
-
-read_eval_print
     X=0                             ; data stack pointer
     Y=0                             ; program text index
+    A=$20                           ; print space after input line
+    !=cout
     !=eval
-    !=print_stack
     !=carriage_return
 
 ok
@@ -797,12 +797,12 @@ ok
 
 ; read program text and evaluate
 ; IN
-;     Y -- line buffer current position 
+;     Y -- line buffer current position
 ;     X -- data stack pointer
 ; USE
 ;     A
 ; OUT
-;     Y -- line buffer new position 
+;     Y -- line buffer new position
 ;     X -- data stack pointer
 eval
     !=skip_blank
@@ -819,7 +819,7 @@ execute
     ;=A>':' #=.word
     #=push_digit
 .word
-    #=exec_word
+    #=find_and_exec
 
 push_digit
     !=push_zero
@@ -830,7 +830,7 @@ push_digit
     A=A-$30                                 ; digit to decimal value
 
     X=--                                    ; push value        -> [base, value]
-    [0]=A 
+    [0]=A
     A=0 [1]=A
     (ysave)=Y                               ; save Y
     !=swap                                  ; swap stack        -> [value, base]
@@ -850,35 +850,78 @@ push_digit
 .loop_end
     #=!
 
-; execute a written word
-;   IN
-;     A - first letter of word
-;     Y - current cursor of line buffer
-;     X - data stack pointer
-;
-;
-exec_word
-    (ysave)=Y                   ; save text pointer
-    ;=A='r' !=rand #=.ok
+; 辞書からワードを検索して一致したら実行
+find_and_exec
+        !=tokenize
+        (ysave)=Y
+        A=<DICT (N+0)=A         ; address of dict entry
+        A=>DICT (N+1)=A
+        A=<token (N+2)=A        ; address of token buffer
+        A=>token (N+3)=A
+.loop
+        !=strequ
+        ;=EQ,.hit
+.miss
+        ; dict next entry
+        ;
+        ; DICT <- $930A
+        ; $930A + $0A + 1 = $9315
+        ; 930A       $0A                <- length
+        ; 930B~9314  'fetch_byte'       <- word name
+        ; 9315~9316  $1F $89            <- link to previous
+        ;
+        X=--                    ; push (N) ... $930A
+        A=(N+0)
+        (0+X)=A
+        A=(N+1)
+        (1+X)=A                 ; get next entry address
+        !=dup                   ; $930A $930A |
+        !=fetch_byte            ; $000A $930A |
+        !=plus                  ;       $9314 |
+        !=one_plus              ;       $9315 |
+        !=fetch                 ;       $891F |
+        A=(0+X)                 ;
+        (N+0)=A                 ; (N+0) <- $1F
+        A=(1+X)                 ;
+        (N+1)=A                 ; (N+1) <- $89
+        X=++                    ; DROP
+        A=A|(N+0)               ; zero check
+          ;=EQ,.err             ;   yes -> end of dict
+        #=.loop
+.hit
+        ; execute word routine:  N+len+2 = word subroutine address
 
-    ;=X>$fd #=.err              ; check if stack has more 2 values
-                                ; fa,fb  fc,fd  fe,ff  | 0 (bottom)
-                                ;     <- OK NG ->
-    ;=A='+' !=plus #=.ok
-    ;=A='-' !=minus #=.ok
-    ;=A='*' !=star #=.ok
-    ;=A='/' !=slash #=.ok
-    ;=A='%' !=percent #=.ok
-.ok
-    Y=(ysave)                   ; restore text pointer
-    Y=+                         ;  and advance
-    #=!
+        !=push_from_N
+        Y=0
+        A=[N]+Y
+        !=push_byte
+        A=3
+        !=push_byte
+        !=plus
+        !=plus
+        Y=(ysave)
+        !=indirect_jsr
+        #=!
 .err
-    A='?'
-    !=cout
-    !=carriage_return
-    Y=+
-    #=!
+        A='?'
+        !=cout
+        !=carriage_return
+        Y=(ysave)
+        Y=+
+        #=!
+
+; indirect subroutine call
+; (addr  --  )
+indirect_jsr
+        A=1
+        !=push_byte
+        !=minus
+        A=(1+X)
+        [=A
+        A=(0+X)
+        [=A
+        X=++
+        #=!
 
 ; skip space characters on program text
 ;   IN   Y program text index
@@ -890,37 +933,6 @@ skip_blank
         ;=A=$20 Y=+ #=skip_blank
         #=!
 
-; print stack contents
-;   S[3]: 0001 0002 0003
-print_stack
-    A='S' !=cout
-    A='[' !=cout
-    A=X                 ; A <- stack ptr
-    ;=Z,.skip           ; if ptr is zero?
-    A=A^$ff             ;   no: convert to positive using 2s compliment
-    A=A+1
-.skip
-    A=>                 ; A=A/2 because stack is 2bytes width
-    ;=A>$0A A=A+7       ; val 10 to char 'A'
-    A=A+$30             ; val to ascii
-    !=cout
-    A=']' !=cout
-    A=':' !=cout
-    ;=X=0 #=!           ; stop if empty
-
-.print_stack_value
-    A=$20 !=cout
-    !=dup
-    A=(1+X)
-    (0+X)=A
-    !=put_hex           ; print hi byte of TOS
-    !=dup
-    !=put_hex
-
-    ;; next stack entry
-    X=++
-    ;=X>1 #=.print_stack_value
-    #=!
 
 ; put char to screen
 ; IN   A
@@ -928,7 +940,7 @@ cout
     (xsave)=X
     (ysave)=Y
     [=A                     ; save char code
-    
+
     A=(cursor_y)
     A=A+(scroll_y)
     Y=A
@@ -941,15 +953,41 @@ cout
     X=(xsave)
     #=!
 
-; 1byte値をhex形式で出力
+; Output a 8 bit value in hexadecimal format
 ;   ( b --  )
 put_hex
-        !=numhex            ; byte値を2桁の文字に変換
-        A=(0+X)             ; 1桁目を取り出す
-        !=cout              ; 出力
-        A=(1+X)             ; 2桁目を取り出す
-        !=cout              ; 出力
-        X=++                ; スタックを消費
+        !=numhex            ; Convert a byte value to a two-digit character.
+        A=(0+X)             ; Extract the first digit
+        !=cout              ; output
+        A=(1+X)             ; Extract the senond digit
+        !=cout              ; output
+        X=++                ; Consume the stack
+        #=!
+
+; Output a 16 bit value in decimal format
+;   ( d -- )
+put_decimal
+        A=0                 ; put null delimiter
+        [=A
+.1
+            X=--            ; push const 10     -> [value, 10]
+            A=10 [0]=A
+            A=0  [1]=A
+            !=divmod        ; call divmod       -> [div, mod]
+            A=[0]           ; mod value
+            A=A+'0'         ;   convert to ascii
+            [=A             ;   push A to the system stack
+            X=++            ; drop mod value    -> [div]
+            A=(0+X)           ; if div == 0 then stop
+            A=A|(1+X)
+            ;=NE,.1         ; else repeat again
+        X=++                ; drop the last div value (=0)
+        A=]
+.2
+        !=cout
+        A=]
+        ;=NE,.2
+
         #=!
 
 ; do carriage return and scroll up
@@ -975,6 +1013,15 @@ carriage_return
 
         X=(xsave)
         Y=(ysave)
+        A=X
+        [=A
+        A=Y
+        [=A
+        !=ppu_update
+        A=]
+        Y=A
+        A=]
+        X=A
         #=!
 
 ;-------------------------------------------------------------------------------
@@ -982,137 +1029,36 @@ carriage_return
 ;-------------------------------------------------------------------------------
 ;; push zero value
 push_zero
-    [=A
-    X=--                                    ; push initial value 0
-    A=0
-    (0+X)=A
-    (1+X)=A
-    A=]
-    #=!
-
-;; multiply                     ( n1 n2 -- n1*n2 )
-star    A=Y [=A                 ; STAR:   PHY
-        A=0 (N)=A               ;         STZ  N
-        Y=0                     ;         LDY  #0
-.1      >=(3+X)                 ; sta1$:     LSR  3,X
-        )=(2+X)                 ;            ROR  2,X
-        ;=<,.2                  ;            BCC  sta2$
-        C=0                     ;               CLC
-        A=(N)                   ;               LDA  N
-        A=A+(0+X)               ;               ADC  0,X
-        (N)=A                   ;               STA  N
-        A=Y                     ;               TYA
-        A=AC+(1+X)              ;            ADC  1,X
-        Y=A                     ;            TAY
-.2      <=(0+X)                 ; sta2$:     ASL  0,X
-        (=(1+X)                 ;            ROL  1,X
-                                ; 
-        A=(2+X)                 ;            LDA  2,X
-        A=A|(3+X)               ;            ORA  3,X
-        ;=\,.1                  ;         BNE  sta1$
-                                ; 
-        A=(N)                   ;         LDA  N
-        (2+X)=A                 ;         STA  2,X
-        (3+X)=Y                 ;         STY  3,X
-        X=++                    ;         POP
-        A=]                     ;         PLY
-        Y=A
-        #=!                     ;         RTS
-
-;; add                          ( n1 n2  --  n1+n2 )
-plus                            ; PLUS:   CLC             
-        A=(0+X)                 ;         LDA  0,X
-        A=A+(2+X)               ;         ADC  2,X
-        (2+X)=A                 ;         STA  2,X
-        A=(1+X)                 ;         LDA  1,X
-        A=AC+(3+X)              ;         ADC  3,X
-        (3+X)=A                 ;         STA  3,X
-        X=++                    ;         POP
-        #=!                     ;         RTS
-
-;; subtract                     ( n1 n2  --  n1-n2 )
-minus   C=1                     ; MINUS:  SEC             
-        A=(2+X)                 ;         LDA  2,X
-        A=AC-(0+X)              ;         SBC  0,X
-        (2+X)=A                 ;         STA  2,X
-        A=(3+X)                 ;         LDA  3,X
-        A=AC-(1+X)              ;         SBC  1,X
-        (3+X)=A                 ;         STA  3,X
-        X=++                    ;         POP
-        #=!                     ;  mi1$:  RTS
-
-swap    A=(0+X)                 ; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
-        Y=(2+X)                 ;         LDY  2,X
-        (2+X)=A                 ;         STA  2,X
-        (0+X)=Y                 ;         STY  0,X
-
-        A=(1+X)                 ;         LDA  1,X
-        Y=(3+X)                 ;         LDY  3,X
-        (3+X)=A                 ;         STA  3,X
-        (1+X)=Y                 ;         STY  1,X
-        #=!                     ;         RTS
-
-dup     X=--                    ; DUP:    DEX2            ; This could be shortened by a few bytes by using PUSH,
-        A=(2+X)                 ;         LDA  2,X        ; but it's used often enough that I think it's worth
-        (0+X)=A                 ;         STA  0,X        ; doing this way.                       ( n1 -- n1 n1 )
-        A=(3+X)                 ;         LDA  3,X        ; It just DUPlicates the top stack cell.
-        (1+X)=A                 ;         STA  1,X
-        #=!                     ;  durt$: RTS
-
-;; division
-slash               ; '/'
-        !=divmod
-        X=++
+        [=A
+        X=--                                    ; push initial value 0
+        A=0
+        (0+X)=A
+        (1+X)=A
+        A=]
         #=!
-percent             ; '%'
-        !=divmod
-        !=swap
-        X=++
+
+; push from A register    ( -- b )
+push_byte
+        X=--
+        (0+X)=A
+        A=0
+        (1+X)=A
         #=!
-divmod                          ; copy and modified from http://www.6502.org/source/interpreters/vtl02.htm
-        A=0                     ; lda  #0		
-        (N)=A                   ; sta  remn	; {%} = 0
-        (N+1)=A                 ; sta  remn+1	
-        A=16                    ; lda  #16	
-        (N+2)=A                 ; sta  under	; {_} = loop counter
-.1      (2+X)=<                 ; asl  0,x	; var[x] is gradually replaced
-        (3+X)=(                 ; rol  1,x	;   with the quotient
-        (N)=(                   ; rol  remn	; {%} is gradually replaced
-        (N+X)=(                 ; rol  remn+1	;   with the remainder
-        A=(N)                   ; lda  remn	
-        T=A-(0+X)               ; cmp  2,x	
-        A=(N+1)                 ; lda  remn+1	; partial remainder >= var[x+2]?
-        A=AC-(1+X)              ; sbc  3,x	
-        ;=CC,.2                 ; bcc  div2	
-        (N+1)=A                 ; sta  remn+1	;   yes: update the partial
-        A=(N)                   ; lda  remn	;     remainder and set the
-        A=AC-(0+X)              ; sbc  2,x	;     low bit in the partial
-        (N)=A                   ; sta  remn	;     quotient
-        (2+X)=+                 ; inc  0,x	
-.2      (N+2)=-                 ; dec  under	
-        ;=NE,.1                 ; bne  div1	; loop 16 times
+
+push_from_N
+        X=--
         A=(N)
         (0+X)=A
         A=(N+1)
         (1+X)=A
-        #=!                     ; rts  		
+        #=!
 
-rand
-        A=(random)              ; ALL 0 -> initial state
-        A=A|(random+1)
-        ;=NE,.1
-            A=(nmi_count)       ; initialize seed
-            (random)=A          ;   from nmi counter
-            A=(cursor_x)        ;   and cursor (x,y)
-            A=<<<<
-            A=A|(cursor_y)
-            (random+1)=A
-.1
-        !=galois16
-        X=--
-        (0+X)=A
-        A=(random+1)
-        (1+X)=A
+pull_to_N
+        A=(0+X)
+        (N)=A
+        A=(1+X)
+        (N+1)=A
+        X=++
         #=!
 
 ;;; Code from https://github.com/bbbradsmith/prng_6502
@@ -1330,6 +1276,351 @@ init_nametable
 
         #=!
 
+; string comparisons
+;
+; IN:  N, N+1, N+2, N+3
+; USE: Y, A
+; OUT: Z
+strequ                          ; http://www.6502.org/source/strings/comparisons.html
+        Y=0                     ; STREQU:     LDY #$00        ;Compare strings, case-sensitive
+        A=[N+0]+Y               ;             LDA ($FA),Y     ;Naturally, the zero flag is used to return if the strings are equal
+        T=A-[N+2]+Y             ;             CMP ($FC),Y
+        ;=EQ,.1                 ;             BEQ STREQU1
+        #=!                     ;             RTS
+.1      Y=A                     ; STREQU1:    TAY
+.loop   A=[N+2]+Y               ; STREQULP:   LDA ($FC),Y
+                                ;             AND #$7F
+        (N+4)=A                 ;             STA $FF
+        A=[N+0]+Y               ;             LDA ($FA),Y
+                                ;             AND #$7F
+        T=A-(N+4)               ;             CMP $FF
+        ;=NE,.ex                ;             BNE STREQUEX
+        Y=-                     ;             DEY
+        ;=NE,.loop              ;             BNE STREQULP
+.ex     #=!                     ; STREQUEX:   RTS
+
+; copy token to toke buffer
+; first byte is length of token
+; IN   line_buf, Y
+; USE  N
+; OUT  token, Y
+tokenize
+        (xsave)=X               ; save stack pointer
+        X=0                     ; init token counter
+.loop
+        A=(line_buf+Y)          ; read from line buf
+        ;=A=$20 #=.end          ; if space? then end
+        (token_s+X)=A           ; write to token buf
+        X=+
+        Y=+
+        ;=Z,.end                ; out of buffer? -> goto end
+        #=.loop
+.end
+        A=X                     ; set token length
+        (token)=A
+
+        X=(xsave)               ; restore stack pointer
+        #=!
+
+;-------------------------------------------------------------------------------
+; word execution routines
+
+;----------------------------------------
+; multiply                     ( n1 n2 -- n1*n2 )
+L001    ?=1,"*"
+        ?=0,0                   ; link field (last entry is zero)
+;
+star    A=Y [=A                 ; STAR:   PHY
+        A=0 (N)=A               ;         STZ  N
+        Y=0                     ;         LDY  #0
+.1      >=(3+X)                 ; sta1$:     LSR  3,X
+        )=(2+X)                 ;            ROR  2,X
+        ;=<,.2                  ;            BCC  sta2$
+        C=0                     ;               CLC
+        A=(N)                   ;               LDA  N
+        A=A+(0+X)               ;               ADC  0,X
+        (N)=A                   ;               STA  N
+        A=Y                     ;               TYA
+        A=AC+(1+X)              ;            ADC  1,X
+        Y=A                     ;            TAY
+.2      <=(0+X)                 ; sta2$:     ASL  0,X
+        (=(1+X)                 ;            ROL  1,X
+                                ;
+        A=(2+X)                 ;            LDA  2,X
+        A=A|(3+X)               ;            ORA  3,X
+        ;=\,.1                  ;         BNE  sta1$
+                                ;
+        A=(N)                   ;         LDA  N
+        (2+X)=A                 ;         STA  2,X
+        (3+X)=Y                 ;         STY  3,X
+        X=++                    ;         POP
+        A=]                     ;         PLY
+        Y=A
+        #=!                     ;         RTS
+
+;----------------------------------------
+; add                          ( n1 n2  --  n1+n2 )
+L002    ?=1,"+"
+        ?=L001                  ; link filed (to multiply)
+;
+plus                            ; PLUS:   CLC
+        A=(0+X)                 ;         LDA  0,X
+        A=A+(2+X)               ;         ADC  2,X
+        (2+X)=A                 ;         STA  2,X
+        A=(1+X)                 ;         LDA  1,X
+        A=AC+(3+X)              ;         ADC  3,X
+        (3+X)=A                 ;         STA  3,X
+        X=++                    ;         POP
+        #=!                     ;         RTS
+
+;----------------------------------------
+;; subtract                     ( n1 n2  --  n1-n2 )
+L003    ?=1,"="
+        ?=L002
+;
+minus   C=1                     ; MINUS:  SEC
+        A=(2+X)                 ;         LDA  2,X
+        A=AC-(0+X)              ;         SBC  0,X
+        (2+X)=A                 ;         STA  2,X
+        A=(3+X)                 ;         LDA  3,X
+        A=AC-(1+X)              ;         SBC  1,X
+        (3+X)=A                 ;         STA  3,X
+        X=++                    ;         POP
+        #=!                     ;  mi1$:  RTS
+
+;----------------------------------------
+L004    ?=2,"1+"
+        ?=L003
+;
+one_plus
+        A=1
+        !=push_byte
+        !=plus
+        #=!
+
+;----------------------------------------
+L005    ?=4,"swap"
+        ?=L004
+;
+swap    A=(0+X)                 ; SWAP:   LDA  0,X        ; Swap the top two data-stack cells.  ( n1 n2 -- n2 n1 )
+        Y=(2+X)                 ;         LDY  2,X
+        (2+X)=A                 ;         STA  2,X
+        (0+X)=Y                 ;         STY  0,X
+
+        A=(1+X)                 ;         LDA  1,X
+        Y=(3+X)                 ;         LDY  3,X
+        (3+X)=A                 ;         STA  3,X
+        (1+X)=Y                 ;         STY  1,X
+        #=!                     ;         RTS
+
+;----------------------------------------
+L006    ?=3,"dup"
+        ?=L005
+;
+dup     X=--                    ; DUP:    DEX2            ; This could be shortened by a few bytes by using PUSH,
+        A=(2+X)                 ;         LDA  2,X        ; but it's used often enough that I think it's worth
+        (0+X)=A                 ;         STA  0,X        ; doing this way.                       ( n1 -- n1 n1 )
+        A=(3+X)                 ;         LDA  3,X        ; It just DUPlicates the top stack cell.
+        (1+X)=A                 ;         STA  1,X
+        #=!                     ;  durt$: RTS
+
+;----------------------------------------
+; division
+L007    ?=1,"/"
+        ?=L006
+;
+slash               ; '/'
+        !=divmod
+        X=++
+        #=!
+
+;----------------------------------------
+L008    ?=1,"%"
+        ?=L007
+;
+percent             ; '%'
+        !=divmod
+        !=swap
+        X=++
+        #=!
+
+;----------------------------------------
+L009    ?=6,"divmod"
+        ?=L008
+;
+divmod                          ; copy and modified from http://www.6502.org/source/interpreters/vtl02.htm
+        A=0                     ; lda  #0
+        (N)=A                   ; sta  remn	; {%} = 0
+        (N+1)=A                 ; sta  remn+1
+        A=16                    ; lda  #16
+        (N+2)=A                 ; sta  under	; {_} = loop counter
+.1      (2+X)=<                 ; asl  0,x	; var[x] is gradually replaced
+        (3+X)=(                 ; rol  1,x	;   with the quotient
+        (N)=(                   ; rol  remn	; {%} is gradually replaced
+        (N+X)=(                 ; rol  remn+1	;   with the remainder
+        A=(N)                   ; lda  remn
+        T=A-(0+X)               ; cmp  2,x
+        A=(N+1)                 ; lda  remn+1	; partial remainder >= var[x+2]?
+        A=AC-(1+X)              ; sbc  3,x
+        ;=CC,.2                 ; bcc  div2
+        (N+1)=A                 ; sta  remn+1	;   yes: update the partial
+        A=(N)                   ; lda  remn	;     remainder and set the
+        A=AC-(0+X)              ; sbc  2,x	;     low bit in the partial
+        (N)=A                   ; sta  remn	;     quotient
+        (2+X)=+                 ; inc  0,x
+.2      (N+2)=-                 ; dec  under
+        ;=NE,.1                 ; bne  div1	; loop 16 times
+        A=(N)
+        (0+X)=A
+        A=(N+1)
+        (1+X)=A
+        #=!                     ; rts  
+
+;----------------------------------------
+; print stack contents          ( -- )
+;   S[3]: 0001 0002 0003
+L010    ?=2,".s"
+        ?=L009
+;
+print_stack
+    A='S' !=cout
+    A='[' !=cout
+    A=X                 ; A <- stack ptr
+    ;=Z,.skip           ; if ptr is zero?
+    A=A^$ff             ;   no: convert to positive using 2s compliment
+    A=A+1
+.skip
+    A=>                 ; A=A/2 because stack is 2bytes width
+    ;=A>$0A A=A+7       ; val 10 to char 'A'
+    A=A+$30             ; val to ascii
+    !=cout
+    A=']' !=cout
+    A=':' !=cout
+    ;=X=0 #=advance_cursor  ; stop if empty
+.print_stack_value
+    A=$20 !=cout
+    !=dup
+    A=(1+X)
+    (0+X)=A
+    !=put_hex           ; print hi byte of TOS
+    !=dup
+    !=put_hex
+
+    ;; next stack entry
+    X=++
+    ;=X>1 #=.print_stack_value
+    !=advance_cursor
+    #=!
+
+;----------------------------------------
+; pop 1 and show value          ( w -- )
+L011    ?=1,"."
+        ?=L010
+;
+period
+    !=dup
+    (ysave)=Y
+    !=put_decimal
+    !=advance_cursor
+
+    Y=(ysave)
+    #=!
+
+;----------------------------------------
+; push random 16 bit number     ( -- w )
+L012    ?=4,"rand"
+        ?=L011
+;
+rand
+        A=(random)              ; ALL 0 -> initial state
+        A=A|(random+1)
+        ;=NE,.1
+            A=(nmi_count)       ; initialize seed
+            (random)=A          ;   from nmi counter
+            A=(cursor_x)        ;   and cursor (x,y)
+            A=<<<<
+            A=A|(cursor_y)
+            (random+1)=A
+.1
+        !=galois16
+        X=--
+        (0+X)=A
+        A=(random+1)
+        (1+X)=A
+        #=!
+
+;----------------------------------------
+; push random dice number 1..6    ( -- w )
+;   rand 6 % 1 +
+L013    ?=4,"dice"
+        ?=L012
+;
+dice
+        !=rand              ; rand
+        A=6
+        X=--                ; 6
+        (0+X)=A
+        A=0
+        (1+X)=A
+        !=percent           ; %
+        X=--                ; 1
+        A=1
+        (0+X)=A
+        A=0
+        (1+X)=A
+        !=plus              ; +
+        #=!
+
+;----------------------------------------
+; Fetch n at addr.                  ( addr -- n )
+L014    ?=5,"fetch"
+        ?=L013
+;
+fetch   A=[0+X]                 ; FETCH:  LDA  (0,X)
+        [=A                     ;         PHA
+        (0+X)=+                 ;         INC  0,X
+        ;=\,.1                  ;         BNE  1$
+        (1+X)=+                 ;         INC  1,X
+.1      A=[0+X]                 ;  1$:    LDA  (0,X)
+        (1+X)=A                 ; PUT:    STA  1,X
+        A=]                     ;         PLA
+        (0+X)=A                 ;         STA  0,X
+        #=!                     ;         RTS
+
+;----------------------------------------
+; Store n at addr.                  ( n addr -- )
+L015    ?=5,"store"
+        ?=L014
+;
+store   A=(2+X)                 ; STORE:  LDA  2,X
+        [0+X]=A                 ;         STA  (0,X)
+        (0+X)=+                 ;         INC  0,X
+        ;=\,.1                  ;         BNE  st1$
+        (1+X)=+                 ;         INC  1,X
+.1      A=(3+X)                 ;  st1$:  LDA  3,X
+        [0+X]=A                 ;  st2$:  STA  (0,X)
+        X=++++                  ;         POP2
+        #=!                     ;         RTS
+
+;----------------------------------------
+; Fetch b at addr.                  ( addr -- b )
+L016    ?=10,"fetch_byte"
+        ?=L015
+;
+fetch_byte
+        A=[0+X]
+        (0+X)=A
+        A=0
+        (1+X)=A
+        #=!
+
+;----------------------------------------
+DICT    :=L016              ; word dict first entry
+
+; Program END
+
+;===============================================================================
+
 ;; .segment "RODATA"
 example_palette
         ?=$0F,$20,$0F,$30   ;  bg0 white / black
@@ -1342,7 +1633,7 @@ example_palette
         ?=$0F,$12,$22,$32   ;  sp3 marine
 
 keycode_table
-        ; -- keyboard matrix (8x9) -- 
+        ; -- keyboard matrix (8x9) --
         ; F8  RET [  ]   KANA RSFT ￥  STOP
         ; F7  @   ;  :   _    /    -   ^
         ; F6  O   L  K   ,    .    P   0
@@ -1354,7 +1645,7 @@ keycode_table
         ; CLR ↑   →  ←   ↓    SPC  DEL INS
         ?=$18,$01,"[]",$02,$03,$5C,$04
         ?=$17,"@;:_/-^"
-        ?=$16,"olk,.p0"
+        ?=$16,"olk.,p0"
         ?=$15,"iujmn98"
         ?=$14,"yghbv76"
         ?=$13,"trdfc54"
@@ -1365,7 +1656,7 @@ keycode_table
 keycode_table_shifted
         ?=$18,$01,"[]",$02,$03,$5C,$04
         ?=$17,"@+*_?=^"
-        ?=$16,"OLK<>P0"
+        ?=$16,"OLK><P0"
         ?=$15,"IUJMN)("
         ?=$14,"YGHBV'&"
         ?=$13,"TRDFC%$"
@@ -1373,7 +1664,7 @@ keycode_table_shifted
         ?=$11,$05,"Q",$06,$07,$08,"!",$22
         ?=$09,$0A,$0B,$0C,$0D,$20,$0E,$0F
 
-        $=$00,$fffa-*       ;;.segment "VECINFO"                       
+        $=$00,$fffa-*       ;;.segment "VECINFO"
         ?=nmi               ;         .word        $0000
         ?=reset             ;         .word        Reset
         ?=irq               ;         .word        $0000

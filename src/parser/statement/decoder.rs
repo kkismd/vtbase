@@ -456,7 +456,7 @@ pub fn decode_if(expr: &Expr, _labels: &LabelTable) -> Result<AssemblyInstructio
 fn if_condition_mnemonic(symbol: &str) -> Result<Mnemonic, AssemblyError> {
     match symbol {
         "\\" | "/" | "!" | "NE" => Ok(BNE),
-        "=" | "EQ" => Ok(BEQ),
+        "=" | "EQ" | "Z" => Ok(BEQ),
         ">" | "CS" | "GE" => Ok(BCS),
         "<" | "CC" | "LT" => Ok(BCC),
         "-" | "MI" => Ok(BMI),
@@ -547,7 +547,11 @@ pub fn decode_address(
                 } else if op == ">" {
                     decode_lsr(command, labels)
                 } else if op == "<" {
+                    decode_asl(command, labels)
+                } else if op == "(" {
                     decode_rol(command, labels)
+                } else if op == ")" {
+                    decode_ror(command, labels)
                 } else {
                     decode_error(expr)
                 }

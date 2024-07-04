@@ -4,7 +4,10 @@ use crate::opcode;
 use crate::parser::expression::Operator;
 use crate::parser::statement::Statement;
 use crate::{error::AssemblyError, parser::Line};
+use core::fmt;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 
 pub struct Assembler {
@@ -87,6 +90,25 @@ impl Address {
             op, self, other
         )))
     }
+
+    fn cmp(&self, address: &Address) -> std::cmp::Ordering {
+        // FullとZeroPageの比較は、Fullとして比較する
+        match (self, address) {
+            (Address::Full(n), Address::Full(m)) => n.cmp(m),
+            (Address::ZeroPage(n), Address::ZeroPage(m)) => n.cmp(m),
+            (Address::Full(n), Address::ZeroPage(m)) => n.cmp(&(*m as u16)),
+            (Address::ZeroPage(n), Address::Full(m)) => (*n as u16).cmp(m),
+        }
+    }
+}
+
+impl fmt::UpperHex for Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Address::Full(address) => write!(f, "{:04X}", address),
+            _ => write!(f, ""),
+        }
+    }
 }
 
 impl Assembler {
@@ -166,6 +188,7 @@ impl Assembler {
             objects_size += objects.len();
             line.object_codes.extend(objects);
         }
+        self.show_labels();
         Ok(objects_size)
     }
 
@@ -174,6 +197,37 @@ impl Assembler {
             let first_char = label.chars().next().unwrap();
             if first_char != '.' && first_char != '#' {
                 self.current_label = label.to_string();
+            }
+        }
+    }
+
+    fn show_labels(&self) {
+        // labelsに含まれるLabelEntryのリストを作る
+        let mut labels: Vec<&LabelEntry> = self.labels.values().collect();
+        // 先頭が # の場合は除外する
+        labels.retain(|entry| !entry.name.starts_with('#'));
+        // 途中に . が含まれている場合は除外する
+        labels.retain(|entry| !entry.name.contains('.'));
+        // nameが大文字からはじまる場合は除外する
+        labels.retain(|entry| !entry.name.chars().next().unwrap().is_uppercase());
+        // addressが0x8000以下の場合は除外する
+        labels.retain(|entry| {
+            if let Address::Full(address) = entry.address {
+                address >= 0x8000
+            } else {
+                false
+            }
+        });
+        // addressでソートする
+        labels.sort_by(|a, b| a.address.cmp(&b.address));
+        // labelsの内容を labels.txt に出力する
+        let mut file = File::create("labels.txt").expect("Unable to create file");
+
+        for entry in labels {
+            let name = &entry.name;
+            if let Address::Full(addr16) = &entry.address {
+                let address = addr16 - 0x8000;
+                writeln!(file, "P:{:04X}:{}", address, name).expect("Unable to write to file");
             }
         }
     }

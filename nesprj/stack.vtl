@@ -39,12 +39,12 @@ bl      A=$20                   ;; BL:     LDA  #$20       ; Put $20, the blank 
         A=0 (1+X)=A             ;;         STZ  1,X
         #=!                     ;;         RTS
 
-fetch   A=(0+X)                 ;; FETCH:  LDA  (0,X
+fetch   A=[0+X]                 ;; FETCH:  LDA  (0,X)
         [=A                     ;;         PHA
         (0+X)=+                 ;;         INC  0,X
         ;=\,.1                  ;;         BNE  1$
         (1+X)=+                 ;;         INC  1,X
-.1      A=(0+X)                 ;;  1$:    LDA  (0,X)
+.1      A=[0+X]                 ;;  1$:    LDA  (0,X)
         C=0 ;=<,put             ;;         BRA  PUT
 
 push    X=--                    ;; PUSH:   DEX2
@@ -210,9 +210,9 @@ locate
 ;; スタックに積まれた1byteをhex2文字に変換する
 ;; ( b -- c-hi c-lo )
 numhex
-        X=--                    ;; スタックを1段深くする
-        A=[2]                   ;; nを読み込む
-        >=A >=A >=A >=A         ;; 上位4bitを下位にずらす
+        X=--                    ;; スタックを1段深くする        -> [new, new, b, 0]
+        A=[2]                   ;; nを読み込む                  A <- b
+        A=>>>>                  ;; 上位4bitを下位にずらす
         !=.hexchar              ;; 文字に変換
         [0]=A                   ;; スタックトップに置く
         A=0
