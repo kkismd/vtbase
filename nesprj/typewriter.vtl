@@ -862,25 +862,17 @@ find_and_exec
         !=strequ
         ;=EQ,.hit
 .miss
-        ; dict next entry
-        ;
-        ; DICT <- $930A
-        ; $930A + $0A + 1 = $9315
-        ; 930A       $0A                <- length
-        ; 930B~9314  'fetch_byte'       <- word name
-        ; 9315~9316  $1F $89            <- link to previous
-        ;
-        X=--                    ; push (N) ... $930A
-        A=(N+0)
-        (0+X)=A
-        A=(N+1)
-        (1+X)=A                 ; get next entry address
-        !=dup                   ; $930A $930A |
-        !=fetch_byte            ; $000A $930A |
-        !=plus                  ;       $9314 |
-        !=one_plus              ;       $9315 |
-        !=fetch                 ;       $891F |
-        A=(0+X)                 ;
+        X=--                    ; dict header layout
+        A=(N+0)                 ; 930A      = $0A               <- length
+        (0+X)=A                 ; 930B~9314 = 'fetch_byte'      <- word name
+        A=(N+1)                 ; 9315~9316 = $1F $89           <- link to previous
+        (1+X)=A                 ;        $930A | <- Stack Bottom           
+        !=dup                   ;  $930A $930A |
+        !=fetch_byte            ;  $000A $930A |
+        !=plus                  ;        $9314 |
+        !=one_plus              ;        $9315 |
+        !=fetch                 ;        $891F |
+        A=(0+X)                 ; 
         (N+0)=A                 ; (N+0) <- $1F
         A=(1+X)                 ;
         (N+1)=A                 ; (N+1) <- $89
