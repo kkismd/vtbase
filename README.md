@@ -1,5 +1,12 @@
 # vtbase
 
+## 開発・移行計画
+
+現在の実装は独立した6502アセンブラです。64tass向け透過的プリプロセッサへの移行は [Issue #45](https://github.com/kkismd/vtbase/issues/45) で計画・検討しています。移行前の構文や実装をこのREADMEに記載したまま残しており、提案中の新版仕様を確定事項とは扱いません。
+
+- [AGENTS.md](AGENTS.md) — Codexを含むエージェント共通の作業契約
+- [docs/project-instructions.md](docs/project-instructions.md) — ChatGPT Project Instructions用の指示（ChatGPT Projectへの設定は別途必要）
+
 Very Tiny BASE for 6502
 
 BASE like assembler using VTL like notation.
